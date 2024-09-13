@@ -1,0 +1,11 @@
+{
+	"id": "obsidian-cloud-storage",
+	"name": "Cloud Storage",
+	"version": "0.1.8",
+	"minAppVersion": "1.0.0",
+	"description": "A convenient Obsidian plugin that allows users to upload local files to the cloud, reducing the burden on local vaults and enabling seamless synchronization across multiple devices.",
+	"author": "majiajun",
+	"authorUrl": "https://pay.obcs.top",
+	"fundingUrl": "https://pay.obcs.top",
+	"isDesktopOnly": false
+}

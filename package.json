@@ -1,0 +1,39 @@
+{
+	"name": "obsidian-plugin-cloud-storage",
+	"version": "0.0.1",
+	"description": "Obsidian Cloud Storage is a powerful and user-friendly plugin designed to seamlessly integrate cloud storage capabilities into your Obsidian workflow. This plugin allows you to effortlessly upload your attachments to the cloud, freeing up local storage space and enabling easy sharing and access across all your devices.",
+	"main": "main.js",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"version": "node version-bump.mjs && git add manifest.json versions.json"
+	},
+	"keywords": [
+		"obsidian",
+		"plugin",
+		"minio",
+		"cloud",
+		"storage",
+		"upload",
+		"attachment",
+		"s3"
+	],
+	"author": "majiajun",
+	"license": "MIT",
+	"devDependencies": {
+		"@types/crypto-js": "^4.2.2",
+		"@types/node": "^16.11.6",
+		"@typescript-eslint/eslint-plugin": "5.29.0",
+		"@typescript-eslint/parser": "5.29.0",
+		"builtin-modules": "3.3.0",
+		"esbuild": "0.17.3",
+		"obsidian": "latest",
+		"tslib": "2.4.0",
+		"typescript": "4.7.4"
+	},
+	"dependencies": {
+		"@aws-sdk/client-s3": "^3.627.0",
+		"axios": "^1.7.3",
+		"crypto-js": "^4.2.0"
+	}
+}

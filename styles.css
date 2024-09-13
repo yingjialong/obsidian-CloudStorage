@@ -1,0 +1,43 @@
+/*
+
+This CSS file will be included with your plugin, and
+available in the app when your plugin is enabled.
+
+If your plugin does not need CSS, delete this file.
+
+*/
+.setting-section {
+    margin-bottom: 24px;
+}
+
+.setting-item-description {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 0;
+}
+
+.subscription-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.subscription-title {
+    margin: 0;
+}
+
+.subscription-upgrade-button {
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.subscription-upgrade-button:hover {
+    background-color: var(--interactive-accent-hover);
+}
+
+.subscription-section {
+    margin-top: 2em;
+    padding-top: 1em;
+    border-top: 1px solid var(--background-modifier-border);
+}
