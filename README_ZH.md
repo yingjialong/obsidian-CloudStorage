@@ -21,7 +21,6 @@ Obsidian Cloud Storage 是一款功能强大且用户友好的 Obsidian 插件�
 
 以下是一些快速视频演示，帮助您开始使用 Obsidian Cloud Storage：
 
-![指南](https://link.obcs.top/file/a8ef7ca954d01ec19f5347d475de8d8b/Pasted_image_20240913201845_20240913T121855_yp5i.png)
 [![指南](https://link.obcs.top/file/a8ef7ca954d01ec19f5347d475de8d8b/Pasted_image_20240913201845_20240913T121855_yp5i.png)](https://www.bilibili.com/video/BV1cW4ZeoExX/)
 
 ## 安装方法
