@@ -19,9 +19,7 @@ Obsidian Cloud Storage is a powerful and user-friendly plugin designed to seamle
 ## Video Demonstrations
 
 Here are some quick video demonstrations to help you get started with Obsidian Cloud Storage:
-
-1. [Setting up and using Obsidian Cloud Storage](#) (Coming soon)
-2. [Advanced features and storage management](#) (Coming soon)
+[Guide](https://www.youtube.com/watch?v=Ga_N2WYFqi8)
 
 ## Installation
 
