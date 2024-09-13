@@ -1,4 +1,5 @@
 # Obsidian Cloud Storage
+ [中文](README_ZH.md) | [English](README.md)
 
 Obsidian Cloud Storage 是一款功能强大且用户友好的 Obsidian 插件，旨在将云存储功能无缝集成到您的笔记工作流程中。这个插件允许您轻松地将附件上传到云端，从而释放本地存储空间，并实现跨设备的轻松共享和访问。
 
