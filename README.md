@@ -108,6 +108,7 @@ Here are some quick video demonstrations to help you get started with Obsidian C
 - **Link Updates**: The plugin updates file links in your notes automatically. Review your notes after bulk uploads to ensure everything looks correct.
 - **Internet Connectivity**: Ensure you have a stable internet connection when performing large uploads.
 - **File Type Considerations**: Be mindful of the file types you're uploading, especially if you're using the whitelist/blacklist feature.
+- **Free Egress Policy**: Our free data transfer (egress) is intended for reasonable use. If your monthly downloads consistently exceed your stored data volume, your account may be subject to limitations. For example, storing 1 TB and downloading up to 1 TB monthly is acceptable, but regularly exceeding this ratio may result in service restrictions.
 
 ## Troubleshooting
 
