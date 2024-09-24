@@ -110,6 +110,7 @@ export default class CloudStoragePlugin extends Plugin {
         console.info('Assets Upload plugin loaded');
 
         await this.loadSettings();
+        this.settings.safetyLink = false;
 
         this.countLocker = new Lock();
         this.updateLinkLocker = new Lock();
@@ -1180,12 +1181,13 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
         new Setting(generalSection)
             .setName('Secure Link')
-            .setDesc('If choose to enable, only your Obsidian can open the file. Otherwise, anyone with your link can open your file without restriction.')
+            .setDesc('If choose to enable, only your Obsidian can open the file. Otherwise, anyone with your link can open your file without restriction.(This feature is currently disabled. )')
             .addToggle(toggle => toggle
                 .setValue(this.plugin.settings.safetyLink || false)
+                .setDisabled(true)
                 .onChange(async (value) => {
-                    this.plugin.settings.safetyLink = value;
-                    await this.plugin.saveSettings();
+                    // this.plugin.settings.safetyLink = value;
+                    // await this.plugin.saveSettings();
                 }));
 
 
