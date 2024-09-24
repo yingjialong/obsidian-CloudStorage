@@ -123,31 +123,6 @@ export default class CloudStoragePlugin extends Plugin {
             callback: () => this.uploadAllAttachments()
         });
 
-
-        this.originalWindowOpen = window.open;
-        Object.defineProperty(window, 'open', {
-            configurable: true,
-            value: this.interceptWindowOpen.bind(this)
-        });
-
-
-        this.app.workspace.onLayoutReady(() => {
-            this.checkAndReloadImages();
-        });
-
-
-        this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
-            this.checkAndReloadImages();
-        }));
-
-
-        this.registerEvent(this.app.workspace.on("layout-change", () => {
-            this.checkAndReloadImages();
-        }));
-
-
-        this.registerCleanupTasks();
-
         // Add setting tab
         this.addSettingTab(new CloudStorageSettingTab(this.app, this));
 
@@ -158,93 +133,7 @@ export default class CloudStoragePlugin extends Plugin {
     }
 
 
-    checkAndReloadImages() {
-        const leaf = this.app.workspace.activeLeaf;
-
-        if (leaf) {
-            const view = leaf.view;
-            if (view instanceof MarkdownView) {
-                this.reloadFailedImages(view);
-            }
-        }
-    }
-
-    reloadFailedImages(view: MarkdownView) {
-        const container = view.containerEl;
-        const images = container.querySelectorAll('img');
-
-        images.forEach(img => {
-            // reset reloaded flag
-            img.removeAttribute('data-reloaded');
-
-            img.onerror = () => {
-                if (!img.dataset.reloaded && this.shouldInterceptUrl(img.src)) {
-                    this.loadImageWithAuth(img.src)
-                        .then(authUrl => {
-                            img.src = authUrl;
-                            img.dataset.reloaded = 'true';
-                        });
-                } else {
-                    // console.log(`img ${img.src} No need to reload`);
-                }
-            };
-        });
-    }
-
-    async loadImageWithAuth(url: string): Promise<string> {
-        try {
-            const newUrl = await this.handleInterceptedUrl(url)
-            const response: RequestUrlResponse = await apiRequestByAccessToken(this, "GET", newUrl, {}, null, 'stream');
-            if (!response) {
-                throw new Error(`Failed to load image`);
-            }
-            const blob = new Blob([response.arrayBuffer], { type: response.headers['content-type'] });
-            return URL.createObjectURL(blob);
-        } catch (error) {
-            console.error('Error loading image:', error);
-            throw error;
-        }
-    }
-
-
-    private registerCleanupTasks() {
-        this.register(() => {
-            Object.defineProperty(window, 'open', {
-                configurable: true,
-                value: this.originalWindowOpen
-            });
-        });
-    }
-
-    private async interceptWindowOpen(url?: string | URL, target?: string, features?: string): Promise<Window | null> {
-        try {
-            if (url && this.shouldInterceptUrl(url.toString())) {
-                const newUrl = await this.handleInterceptedUrl(url.toString());
-                return this.originalWindowOpen.apply(window, [newUrl, target, features]);
-            }
-
-            return this.originalWindowOpen.apply(window, [url, target, features]);
-        } catch (error) {
-            console.error('Error in interceptWindowOpen:', error);
-
-            return this.originalWindowOpen(url, target, features);
-        }
-    }
-
-    private shouldInterceptUrl(url: string): boolean {
-        return url.startsWith(`${LINK_BASE_URL}/private`);
-    }
-
-    private async handleInterceptedUrl(url: string) {
-        const tmp_token = await getTempToken(this);
-        const newUrl = url + '?access_token=' + tmp_token;
-        return newUrl;
-
-    }
-
     onunload() {
-        console.info('uninstall LinkInterceptorPlugin...');
-        console.info('LinkInterceptorPlugin has been unloaded');
     }
 
     async loadSettings() {
