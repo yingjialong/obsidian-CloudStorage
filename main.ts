@@ -1,12 +1,14 @@
-import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, TFile, TFolder, setIcon, ButtonComponent, RequestUrlResponse, TAbstractFile, normalizePath,moment } from 'obsidian';
-import { S3Client, AbortMultipartUploadCommand, ListPartsCommand, ListMultipartUploadsCommand } from "@aws-sdk/client-s3";
+import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, TFile, TFolder, setIcon, ButtonComponent, RequestUrlResponse, TAbstractFile, normalizePath, moment, MarkdownView } from 'obsidian';
+import { S3Client } from "@aws-sdk/client-s3";
 import CryptoJS from 'crypto-js';
 
 // Configuration
 const PART_MAX_RETRIES = 3;
 const DEFAULT_MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
+const LINK_BASE_URL = "https://link.obcs.top";
+// const LINK_BASE_URL = "http://127.0.0.1:5002";
 const USER_MANAGER_BASE_URL = 'https://obcs-api.obcs.top/api';
-//const USER_MANAGER_BASE_URL = 'http://127.0.0.1:5001/api';
+// const USER_MANAGER_BASE_URL = 'http://127.0.0.1:5001/api';
 
 interface UploadProgress {
     uploadId: string;
@@ -19,10 +21,11 @@ interface UploadProgress {
 
 interface UserInfo {
     email: string;
-    token: string | null;
+    access_token: string | null;
+    refresh_token: string | null;
 }
 
-interface MyPluginSettings {
+interface CloudStorageSettings {
     monitoredFolders: string[];
     uploadProgress: Record<string, UploadProgress>;
     userInfo: UserInfo;
@@ -39,15 +42,17 @@ interface MyPluginSettings {
     customS3BaseUrl: string;
     localFileHandling: 'move' | 'recycle';
     customMoveFolder: string;
-    
+    safetyLink: boolean;
+
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
+const DEFAULT_SETTINGS: CloudStorageSettings = {
     monitoredFolders: [],
     uploadProgress: {},
     userInfo: {
         email: '',
-        token: null
+        access_token: null,
+        refresh_token: null
     },
     filterMode: 'blacklist',
     fileExtensions: "",
@@ -61,7 +66,8 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
     customS3Bucket: "",
     customS3BaseUrl: "",
     localFileHandling: 'recycle',
-    customMoveFolder: 'Uploaded_Attachments'
+    customMoveFolder: 'Uploaded_Attachments',
+    safetyLink: false
 };
 
 const enum UploadStatus {
@@ -70,8 +76,8 @@ const enum UploadStatus {
     PerFileMaxLimit // upload skipped due to per file limit
 }
 
-export default class MyPlugin extends Plugin {
-    settings: MyPluginSettings;
+export default class CloudStoragePlugin extends Plugin {
+    settings: CloudStorageSettings;
     s3Client_aws: S3Client | null = null;
     customS3Client: S3Client | null = null;
     bucket_id: string;
@@ -96,6 +102,9 @@ export default class MyPlugin extends Plugin {
     isVerified: boolean = false;
     localFileHandling: 'move' | 'recycle';
     customMoveFolder: string;
+    private originalWindowOpen: typeof window.open;
+    private editorPlugin: any = null;
+
 
     async onload() {
         console.info('Assets Upload plugin loaded');
@@ -113,28 +122,128 @@ export default class MyPlugin extends Plugin {
             callback: () => this.uploadAllAttachments()
         });
 
-        // this.addCommand({
-        //     id: 'cleanup-Obsolete-Progress',
-        //     name: 'Cleanup Obsolete Progress',
-        //     callback: () => this.cleanupObsoleteProgress()
-        // });
 
-        // this.addCommand({
-        //     id: 'list-In-Progress-Uploadss',
-        //     name: 'List In Progress Uploads',
-        //     callback: () => this.listInProgressUploads()
-        // });
+        this.originalWindowOpen = window.open;
+        Object.defineProperty(window, 'open', {
+            configurable: true,
+            value: this.interceptWindowOpen.bind(this)
+        });
+
+
+        this.app.workspace.onLayoutReady(() => {
+            this.checkAndReloadImages();
+        });
+
+
+        this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
+            this.checkAndReloadImages();
+        }));
+
+
+        this.registerEvent(this.app.workspace.on("layout-change", () => {
+            this.checkAndReloadImages();
+        }));
+
+
+        this.registerCleanupTasks();
 
         // Add setting tab
-        this.addSettingTab(new DefaultSettingTab(this.app, this));
+        this.addSettingTab(new CloudStorageSettingTab(this.app, this));
 
         // Create status bar item
         this.statusBarItemEl = this.addStatusBarItem();
         this.updateStatusBar();
+
+    }
+
+
+    checkAndReloadImages() {
+        const leaf = this.app.workspace.activeLeaf;
+
+        if (leaf) {
+            const view = leaf.view;
+            if (view instanceof MarkdownView) {
+                this.reloadFailedImages(view);
+            }
+        }
+    }
+
+    reloadFailedImages(view: MarkdownView) {
+        const container = view.containerEl;
+        const images = container.querySelectorAll('img');
+
+        images.forEach(img => {
+            // reset reloaded flag
+            img.removeAttribute('data-reloaded');
+
+            img.onerror = () => {
+                if (!img.dataset.reloaded && this.shouldInterceptUrl(img.src)) {
+                    this.loadImageWithAuth(img.src)
+                        .then(authUrl => {
+                            img.src = authUrl;
+                            img.dataset.reloaded = 'true';
+                        });
+                } else {
+                    // console.log(`img ${img.src} No need to reload`);
+                }
+            };
+        });
+    }
+
+    async loadImageWithAuth(url: string): Promise<string> {
+        try {
+            const newUrl = await this.handleInterceptedUrl(url)
+            const response: RequestUrlResponse = await apiRequestByAccessToken(this, "GET", newUrl, {}, null, 'stream');
+            if (!response) {
+                throw new Error(`Failed to load image`);
+            }
+            const blob = new Blob([response.arrayBuffer], { type: response.headers['content-type'] });
+            return URL.createObjectURL(blob);
+        } catch (error) {
+            console.error('Error loading image:', error);
+            throw error;
+        }
+    }
+
+
+    private registerCleanupTasks() {
+        this.register(() => {
+            Object.defineProperty(window, 'open', {
+                configurable: true,
+                value: this.originalWindowOpen
+            });
+        });
+    }
+
+    private async interceptWindowOpen(url?: string | URL, target?: string, features?: string): Promise<Window | null> {
+        try {
+            if (url && this.shouldInterceptUrl(url.toString())) {
+                const newUrl = await this.handleInterceptedUrl(url.toString());
+                return this.originalWindowOpen.apply(window, [newUrl, target, features]);
+            }
+
+            return this.originalWindowOpen.apply(window, [url, target, features]);
+        } catch (error) {
+            console.error('Error in interceptWindowOpen:', error);
+
+            return this.originalWindowOpen(url, target, features);
+        }
+    }
+
+    private shouldInterceptUrl(url: string): boolean {
+        return url.startsWith(`${LINK_BASE_URL}/private`);
+    }
+
+    private async handleInterceptedUrl(url: string) {
+        const tmp_token = await getTempToken(this);
+        const newUrl = url + '?access_token=' + tmp_token;
+        return newUrl;
+
     }
 
     onunload() {
-        // Cleanup work when the plugin is unloaded
+        console.info('uninstall LinkInterceptorPlugin...');
+        console.info('LinkInterceptorPlugin has been unloaded');
     }
 
     async loadSettings() {
@@ -170,16 +279,16 @@ export default class MyPlugin extends Plugin {
     }
 
     async requestUploadStart(file_hash: string, file_name: string, total_bytes: number) {
-        const response = await apiRequest(this, 'POST',
-            '/init_upload',
+        const response = await apiRequestByAccessToken(this, 'POST',
+            USER_MANAGER_BASE_URL + '/init_upload',
             { file_hash, file_name, total_bytes }
         );
         return response;
     }
 
     async requestCompletedUpload(upload_id: string) {
-        const response = await apiRequest(this, 'POST',
-            '/complete_upload',
+        const response = await apiRequestByAccessToken(this, 'POST',
+            USER_MANAGER_BASE_URL + '/complete_upload',
             {
                 upload_id: upload_id
             }
@@ -188,8 +297,8 @@ export default class MyPlugin extends Plugin {
     }
 
     async requestNextUpload(upload_id: string, part_number: number, etag: string | null, uploaded_bytes: number) {
-        const response = await apiRequest(this, 'POST',
-            '/upload_part',
+        const response = await apiRequestByAccessToken(this, 'POST',
+            USER_MANAGER_BASE_URL + '/upload_part',
             {
                 upload_id: upload_id,
                 part_number: part_number,
@@ -200,7 +309,7 @@ export default class MyPlugin extends Plugin {
         return response;
     }
 
-    async uploadFileWithResume(file: TFile, key: string): Promise<[number,string, string] | null> {
+    async uploadFileWithResume(file: TFile, key: string): Promise<[number, string, string, string, string] | null> {
         let response: any;
 
         const fileMD5 = await this.calculateMD5(file);
@@ -216,17 +325,19 @@ export default class MyPlugin extends Plugin {
 
             const fileKey = response.key;
             const bucket_id = response.bucket_id;
+            const public_code = response.public_code;
+            const private_code = response.private_code;
 
-            return [UploadStatus.Seccess,fileKey, bucket_id];
+            return [UploadStatus.Seccess, fileKey, bucket_id, public_code, private_code];
         }
 
         if (response.upload_status == 'storagelimit') {
             await this.updateUploadedFileSize(file.stat.size);
-            return [UploadStatus.StorageLimit,"", ""];
+            return [UploadStatus.StorageLimit, "", "", "", ""];
         }
         if (response.upload_status == 'perfilemaxlimit') {
             await this.updateUploadedFileSize(file.stat.size);
-            return [UploadStatus.PerFileMaxLimit,"", ""];
+            return [UploadStatus.PerFileMaxLimit, "", "", "", ""];
         }
 
         let uploadId = response.upload_id;
@@ -301,7 +412,7 @@ export default class MyPlugin extends Plugin {
                 url = response.url;
                 partNumber = response.part_number;
                 uploadedBytes = response.uploaded_bytes;
-                
+
                 await this.updateUploadedFileSize(chunkSize); // upload seccessed, update the uploaded file size
 
             }
@@ -314,7 +425,10 @@ export default class MyPlugin extends Plugin {
             }
             const fileKey = key;
             const bucket_id = response.bucket_id;
-            return [UploadStatus.Seccess,fileKey, bucket_id];
+            const public_code = response.public_code;
+            const private_code = response.private_code;
+
+            return [UploadStatus.Seccess, fileKey, bucket_id, public_code, private_code];
 
         } catch (error) {
             console.error("Error during file upload:", error);
@@ -332,30 +446,30 @@ export default class MyPlugin extends Plugin {
         const chunkSize = 64 * 1024 * 1024; // 64MB, adjust as needed
         const fileSize = fileBlob.size;
         let notice: Notice | null = null;
-        if (fileSize > chunkSize * 3){
-            notice = new Notice(`Calculating MD5 for ${file.name}`,0);
+        if (fileSize > chunkSize * 3) {
+            notice = new Notice(`Calculating MD5 for ${file.name}`, 0);
         }
 
         for (let offset = 0; offset < fileSize; offset += chunkSize) {
             // Use Blob.slice() to get the current chunk of the file
-            const chunk = fileBlob.slice(offset, Math.min(offset + chunkSize, fileSize));            
+            const chunk = fileBlob.slice(offset, Math.min(offset + chunkSize, fileSize));
 
             // Convert Blob chunk to ArrayBuffer
             const chunkBuffer = await this.readBlobAsArrayBuffer(chunk);
 
             // Convert ArrayBuffer to CryptoJS supported WordArray
-            const wordArray = CryptoJS.lib.WordArray.create(chunkBuffer as any);
+            const wordArray = CryptoJS.lib.WordArray.create(chunkBuffer as ArrayBuffer);
 
             // Update MD5 calculation
             md5.update(wordArray);
-            if (notice){
+            if (notice) {
                 notice.setMessage(`Calculating MD5 for ${file.name} - ${Math.round((offset / fileSize) * 100)}%`);
             }
         }
 
         // Calculate the final MD5 hash
         const md5Hash = md5.finalize().toString();
-        if (notice){
+        if (notice) {
             notice.hide();
         }
 
@@ -465,7 +579,7 @@ export default class MyPlugin extends Plugin {
                 this.proccessNotice.setMessage(`Uploading ${this.uploadedFileCount} of ${this.uploadingFileCount} files... [${percent}% done][${this.skipUploadCount} files skipped]`);
             } // Uploading [x] of [y] files... ([z]% done)
             else {
-                this.proccessNotice = new Notice(`Uploading ${this.uploadedFileCount} of ${this.uploadingFileCount} files... [${percent}% done][${this.skipUploadCount} files skipped]`,0);
+                this.proccessNotice = new Notice(`Uploading ${this.uploadedFileCount} of ${this.uploadingFileCount} files... [${percent}% done][${this.skipUploadCount} files skipped]`, 0);
             }
         }
     }
@@ -492,10 +606,12 @@ export default class MyPlugin extends Plugin {
     /**
      * Update references in documents
      */
-    async updateFileReferencesForS3(originalName: string, fileKey: string, fileExtension: string, bucketid: string) {
+    async updateFileReferencesForS3(originalName: string, fileKey: string, fileExtension: string, bucketid: string, public_code: string, private_code: string) {
         const allMarkdownFiles = this.app.vault.getMarkdownFiles();
         let findFlag = false;
         let updated = false;
+        const safetyType = this.settings.safetyLink ? "private" : "public";
+        const safetyCode = this.settings.safetyLink ? private_code : public_code;
         for (const file of allMarkdownFiles) {
             let skipFlag = true;
             if (file) {
@@ -518,7 +634,7 @@ export default class MyPlugin extends Plugin {
                 }
                 await this.updateLinkLocker.acquire(originalName);
                 try {
-                    const url = encodeURI(`https://link.obcs.top/file/${bucketid}/${fileKey}`)
+                    const url = encodeURI(`${LINK_BASE_URL}/${safetyType}/${bucketid}/${safetyCode}/${fileKey}`)
                     const content = await this.app.vault.read(file);
                     const replace_originalName = originalName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                     let newContent = content;
@@ -549,10 +665,11 @@ export default class MyPlugin extends Plugin {
         return updated;
     }
 
-    async updateFileReferencesSecondary(originalName: string, fileKey: string, fileExtension: string, bucketid: string) {
-        console.debug(`updateFileReferencesSecondary ${originalName}`);
+    async updateFileReferencesSecondary(originalName: string, fileKey: string, fileExtension: string, bucketid: string, public_code: string, private_code: string) {
         const allMarkdownFiles = this.app.vault.getMarkdownFiles();
         let updated = false;
+        const safetyType = this.settings.safetyLink ? "private" : "public";
+        const safetyCode = this.settings.safetyLink ? private_code : public_code;
         for (const file of allMarkdownFiles) {
             if (file) {
                 let imageFlag = '';
@@ -561,7 +678,7 @@ export default class MyPlugin extends Plugin {
                 }
                 await this.updateLinkLocker.acquire(originalName);
                 try {
-                    const url = encodeURI(`https://link.obcs.top/file/${bucketid}/${fileKey}`)
+                    const url = encodeURI(`${LINK_BASE_URL}/${safetyType}/${bucketid}/${safetyCode}/${fileKey}`)
                     const content = await this.app.vault.read(file);
                     const replace_originalName = originalName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                     let newContent = content;
@@ -607,7 +724,7 @@ export default class MyPlugin extends Plugin {
             return;
         }
 
-        const response = await apiRequest(this, 'POST', "/get_user_type", {});
+        const response = await apiRequestByAccessToken(this, 'POST', USER_MANAGER_BASE_URL + "/get_user_type", {});
         if (response) {
             this.userType = response.user_type;
             this.isVerified = response.is_verified;
@@ -623,8 +740,9 @@ export default class MyPlugin extends Plugin {
         this.uploadingFileSize = 0; // Total size of files to be uploaded
         this.uploadedErrorFileCount = 0;
         this.uploadedSuccessFileCount = 0;
+        this.skipUploadCount = 0;
 
-        
+
         const allFilePromises: Promise<void>[] = [];
         // Iterate through all monitored folders
         for (const folderPath of monitoredFolders) {
@@ -713,13 +831,13 @@ export default class MyPlugin extends Plugin {
         }
 
         if (this.settings.localFileHandling === 'recycle') {
-        // Move file to recycle bin
-        await this.app.vault.trash(file, true);
+            // Move file to recycle bin
+            await this.app.vault.trash(file, true);
         } else {
             // Move file to custom folder
             const targetFolderPath = this.settings.customMoveFolder || 'Uploaded_Attachments';
             let targetFolder = this.app.vault.getAbstractFileByPath(targetFolderPath);
-            
+
             // Ensure the target folder exists
             if (!targetFolder) {
                 targetFolder = await this.app.vault.createFolder(targetFolderPath);
@@ -740,78 +858,75 @@ export default class MyPlugin extends Plugin {
     }
 
     async processFile(file: TFile) {
-        if (!this.settings.userInfo.token) {
+        if (!this.settings.userInfo.refresh_token) {
             new Notice('Please relogin');
             return;
         }
 
-        const basePath = (this.app.vault.adapter as any).basePath;
-        const filePath = `${basePath}/${file.path}`;
+
         const newFileName = this.generateNewFileName(file.name);
         const maxRetries = 3;  // Maximum number of retries
         const retryDelay = 5000;  // Initial retry delay (milliseconds)
 
         const fileExtension = file.extension.toLowerCase();
-        // if (['png', 'jpg', 'jpeg', 'webp', 'svg', 'gif', 'bmp', 'tiff', 'pdf', ].includes(fileExtension)) {
-        if (true) {
 
-            await this.updateUploadingFileCount();
-            await this.updateUploadingFileSize(file.stat.size);
+        await this.updateUploadingFileCount();
+        await this.updateUploadingFileSize(file.stat.size);
 
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                    const result = await this.uploadFileWithResume(file, newFileName);
-                    if (result && result[0] === UploadStatus.Seccess) {
-                        await this.updateUploadedSuccessFileInfo();
-                        await this.updateUploadedFileCount();
-                        // Update references in documents
-                        const res = await this.updateFileReferencesForS3(file.name, result[1], fileExtension, result[2]);
-                        // Delete the original file after successful upload
-                        if (res) {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const result = await this.uploadFileWithResume(file, newFileName);
+                if (result && result[0] === UploadStatus.Seccess) {
+                    await this.updateUploadedSuccessFileInfo();
+                    await this.updateUploadedFileCount();
+                    // Update references in documents
+                    const res = await this.updateFileReferencesForS3(file.name, result[1], fileExtension, result[2], result[3], result[4]);
+                    // Delete the original file after successful upload
+                    if (res) {
+                        await this.handleLocalFile(file);
+                    }
+                    else {
+                        const res2 = await this.updateFileReferencesSecondary(file.name, result[1], fileExtension, result[2], result[3], result[4]);
+                        if (res2) {
                             await this.handleLocalFile(file);
                         }
-                        else {
-                            const res2 = await this.updateFileReferencesSecondary(file.name, result[1], fileExtension, result[2]);
-                            if (res2) {
-                                await this.handleLocalFile(file);
-                            }
-                        }
-                        return;
                     }
-                    else if (result && result[0] === UploadStatus.StorageLimit) {
-                        await this.updateSkipedFileCount()
-                        return;
-                    }
-                    else if (result && result[0] === UploadStatus.PerFileMaxLimit) {
-                        await this.updateSkipedFileCount()
-                        return;
-                    }
+                    return;
+                }
+                else if (result && result[0] === UploadStatus.StorageLimit) {
+                    await this.updateSkipedFileCount()
+                    return;
+                }
+                else if (result && result[0] === UploadStatus.PerFileMaxLimit) {
+                    await this.updateSkipedFileCount()
+                    return;
+                }
 
-                } catch (error) {
-                    if (attempt === maxRetries) {
-                        console.error(`Failed to upload ${file.name} to S3 after ${maxRetries} attempts: ${error.message}`);
-                        new Notice(`Failed to upload ${file.name} to S3 after ${maxRetries} attempts: ${error.message}`);
-                        await this.updateUploadedErrorFileInfo();
-                    } else {
-                        console.warn(`Attempt ${attempt} to upload ${file.name} failed. Retrying in ${retryDelay * attempt / 1000}s...`, 10);
-                        new Notice(`${file.name} retring...`);
-                        await new Promise(res => setTimeout(res, retryDelay * attempt));
-                    }
+            } catch (error) {
+                if (attempt === maxRetries) {
+                    console.error(`Failed to upload ${file.name} to S3 after ${maxRetries} attempts: ${error.message}`);
+                    new Notice(`Failed to upload ${file.name} to S3 after ${maxRetries} attempts: ${error.message}`);
+                    await this.updateUploadedErrorFileInfo();
+                } else {
+                    console.warn(`Attempt ${attempt} to upload ${file.name} failed. Retrying in ${retryDelay * attempt / 1000}s...`, 10);
+                    new Notice(`${file.name} retring...`);
+                    await new Promise(res => setTimeout(res, retryDelay * attempt));
                 }
             }
         }
+
     }
 }
 
-async function initS3Client(plugin: MyPlugin) {
-    if (plugin.isCloudStorage && plugin.settings.userInfo.token) {
+async function initS3Client(plugin: CloudStoragePlugin) {
+    if (plugin.isCloudStorage && plugin.settings.userInfo.refresh_token && plugin.settings.userInfo.access_token) {
         try {
             const response = await requestUrl({
                 url: USER_MANAGER_BASE_URL + '/getStorageInfo',
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${plugin.settings.userInfo.token}`
+                    'Authorization': `Bearer ${plugin.settings.userInfo.access_token}`
                 },
                 body: JSON.stringify({ "email": plugin.settings.userInfo.email })
             });
@@ -839,7 +954,7 @@ async function initS3Client(plugin: MyPlugin) {
         }
     }
     else if (!plugin.isCloudStorage) {
-                plugin.s3Client_aws = new S3Client({
+        plugin.s3Client_aws = new S3Client({
             endpoint: plugin.settings.customS3Endpoint,
             region: plugin.settings.customS3Region,
             credentials: {
@@ -852,24 +967,8 @@ async function initS3Client(plugin: MyPlugin) {
     }
 }
 
-class SampleModal extends Modal {
-    constructor(app: App) {
-        super(app);
-    }
-
-    onOpen() {
-        const { contentEl } = this;
-        contentEl.setText('Woah!');
-    }
-
-    onClose() {
-        const { contentEl } = this;
-        contentEl.empty();
-    }
-}
-
-export class DefaultSettingTab extends PluginSettingTab {
-    plugin: MyPlugin;
+export class CloudStorageSettingTab extends PluginSettingTab {
+    plugin: CloudStoragePlugin;
     tempPassword: string = '';
     registerButton: HTMLButtonElement;
     resetPasswordButton: HTMLButtonElement;
@@ -888,7 +987,7 @@ export class DefaultSettingTab extends PluginSettingTab {
             expirationDate: null
         };
 
-    constructor(app: App, plugin: MyPlugin) {
+    constructor(app: App, plugin: CloudStoragePlugin) {
         super(app, plugin);
         this.plugin = plugin;
     }
@@ -896,7 +995,6 @@ export class DefaultSettingTab extends PluginSettingTab {
     async display(): Promise<void> {
         const { containerEl } = this;
         containerEl.empty();
-
         this.displayUserAccountSection(containerEl);
         this.displayGeneralSettingsSection(containerEl);
         this.displaySubscriptionFeaturesSection(containerEl);
@@ -908,9 +1006,9 @@ export class DefaultSettingTab extends PluginSettingTab {
     }
 
     private async fetchUserInfo(): Promise<void> {
-        if (this.plugin.settings.userInfo.token) {
+        if (this.plugin.settings.userInfo.access_token && this.plugin.settings.userInfo.access_token) {
             try {
-                const response = await apiRequest(this.plugin, 'POST', '/user_info', {});
+                const response = await apiRequestByAccessToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + '/user_info', {});
                 if (response) {
                     this.userInfo = {
                         email: response.email,
@@ -935,30 +1033,9 @@ export class DefaultSettingTab extends PluginSettingTab {
         }
     }
 
-    private async getTempToken() {
-        try {
-            const response = await requestUrl({
-                url: USER_MANAGER_BASE_URL + '/get_temp_token',
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${this.plugin.settings.userInfo.token}`
-                }
-            });
 
-            if (response.status === 200 && response.json.error_code === 0) {
-                const data = response.json;
-                return data.pay_token;
-            }
-        } catch (error) {
-            console.error('getPayToken', error);
-            new Notice('Unable to jump to subscription page');
-            return null;
-
-        }
-    }
 
     async openPaymentPage(pay_token: string) {
-        const token = this.plugin.settings.userInfo.token;
         const paymentUrl = `https://pay.obcs.top?token=${pay_token}`;
         //const paymentUrl = `http://127.0.0.1:5500/payCheckout/index.html?token=${pay_token}`;
         window.open(paymentUrl, '_blank');
@@ -968,13 +1045,13 @@ export class DefaultSettingTab extends PluginSettingTab {
         const accountSection = containerEl.createEl('div', { cls: 'setting-section' });
         accountSection.createEl('h3', { text: 'User Account' });
 
-        if (this.plugin.settings.userInfo.token) {
+        if (this.plugin.settings.userInfo.refresh_token) {
             // User is logged in
             // Email setting always displayed
             const emailSetting = new Setting(accountSection)
                 .setName('Email')
                 .setDesc(this.plugin.settings.userInfo.email)
-            emailSetting.descEl.style.color = 'red';
+            emailSetting.descEl.addClass('email-desc');
             this.displayLoggedInUI(accountSection);
         } else {
             // User is not logged in
@@ -1057,8 +1134,8 @@ export class DefaultSettingTab extends PluginSettingTab {
         generalSection.createEl('h3', { text: 'General Settings' });
 
         new Setting(generalSection)
-        .setName('Monitored Folders')
-        .setDesc('Specify folders to monitor for attachments. All attachments in these folders will be uploaded.');
+            .setName('Monitored Folders')
+            .setDesc('Specify folders to monitor for attachments. All attachments in these folders will be uploaded.');
 
         this.plugin.settings.monitoredFolders.forEach((folder, index) => {
             this.createFolderSetting(generalSection, folder, index);
@@ -1070,37 +1147,48 @@ export class DefaultSettingTab extends PluginSettingTab {
             this.refreshGeneralSettings(generalSection);
         });
 
-        new Setting(containerEl)
-        .setName('Local File Handling After Upload')
-        .setDesc('Choose how to handle local attachments after they are successfully uploaded to the cloud.')
-        .addDropdown(dropdown => dropdown
-            .addOption('recycle', 'Move to Recycle Bin')
-            .addOption('move', 'Move to Custom Folder')
-            .setValue(this.plugin.settings.localFileHandling)
-            .onChange(async (value: 'move' | 'recycle') => {
-            this.plugin.settings.localFileHandling = value;
-            await this.plugin.saveSettings();
-            this.display(); // Refresh to show/hide the custom folder input
-            }));
+        new Setting(generalSection)
+            .setName('Local File Handling After Upload')
+            .setDesc('Choose how to handle local attachments after they are successfully uploaded to the cloud.')
+            .addDropdown(dropdown => dropdown
+                .addOption('recycle', 'Move to Recycle Bin')
+                .addOption('move', 'Move to Custom Folder')
+                .setValue(this.plugin.settings.localFileHandling)
+                .onChange(async (value: 'move' | 'recycle') => {
+                    this.plugin.settings.localFileHandling = value;
+                    await this.plugin.saveSettings();
+                    this.display(); // Refresh to show/hide the custom folder input
+                }));
 
         if (this.plugin.settings.localFileHandling === 'move') {
-            new Setting(containerEl)
+            new Setting(generalSection)
                 .setName('Custom Move Folder')
                 .setDesc('Specify the folder where uploaded attachments will be moved.')
-                .addText(text => {text
-                .setPlaceholder('Uploaded_Attachments')
-                .setValue(this.plugin.settings.customMoveFolder)
-                .onChange(async (value) => {
-                    this.plugin.settings.customMoveFolder = value;
-                    await this.plugin.saveSettings();
+                .addText(text => {
+                    text
+                        .setPlaceholder('Uploaded_Attachments')
+                        .setValue(this.plugin.settings.customMoveFolder)
+                        .onChange(async (value) => {
+                            this.plugin.settings.customMoveFolder = value;
+                            await this.plugin.saveSettings();
+                        });
+                    text.inputEl.addEventListener('focus', () => {
+                        new FolderSuggest(this.app, text.inputEl);
+                    });
                 });
-                text.inputEl.addEventListener('focus', () => {
-                    new FolderSuggest(this.app, text.inputEl);
-                });
-            });
         }
 
-        
+        new Setting(generalSection)
+            .setName('Secure Link')
+            .setDesc('If choose to enable, only your Obsidian can open the file. Otherwise, anyone with your link can open your file without restriction.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.safetyLink || false)
+                .onChange(async (value) => {
+                    this.plugin.settings.safetyLink = value;
+                    await this.plugin.saveSettings();
+                }));
+
+
     }
 
     private displaySubscriptionFeaturesSection(containerEl: HTMLElement) {
@@ -1114,8 +1202,8 @@ export class DefaultSettingTab extends PluginSettingTab {
             cls: 'mod-cta subscription-upgrade-button'
         });
         upgradeButton.addEventListener('click', async () => {
-            if (this.plugin.settings.userInfo.token) {
-                const pay_token = await this.getTempToken();
+            if (this.plugin.settings.userInfo.refresh_token) {
+                const pay_token = await getTempToken(this.plugin);
                 if (!pay_token) {
                     console.error("Pay token failed to obtain");
                     return;
@@ -1128,12 +1216,8 @@ export class DefaultSettingTab extends PluginSettingTab {
 
         const subscriptionNote = subscriptionSection.createEl('p', {
             text: 'Note: These features are only available to subscribed members.',
-            cls: 'setting-item-description'
+            cls: 'custom-setting-item-description'
         });
-        subscriptionNote.style.fontSize = '12px';
-        subscriptionNote.style.fontStyle = 'italic';
-        subscriptionNote.style.marginTop = '0';
-        subscriptionNote.style.color = 'red';
 
         new Setting(subscriptionSection)
             .setName('File Filter Mode')
@@ -1187,6 +1271,7 @@ export class DefaultSettingTab extends PluginSettingTab {
 
         const featureList = upcomingSection.createEl('ul');
         const upcomingFeatures = [
+            'Add a link conversion feature, enabling to switch between public and private modes for uploaded files.',
             'Implement a comprehensive backup feature, allowing users to easily backup their uploaded files and facilitate future migrations.',
             'Introduce email-based authentication for accessing the file management interface, enhancing user convenience and security.',
             'Develop a feature for generating temporary share links with customizable expiration times, improving file sharing capabilities.',
@@ -1201,7 +1286,7 @@ export class DefaultSettingTab extends PluginSettingTab {
 
     private async resendVerificationEmail(): Promise<void> {
         try {
-            const response = await apiRequest(this.plugin, 'POST', '/resend_verification', {});
+            const response = await apiRequestByAccessToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + '/resend_verification', {});
             if (response) {
                 new Notice('Verification email sent. Please check your inbox.');
             } else {
@@ -1230,10 +1315,9 @@ export class DefaultSettingTab extends PluginSettingTab {
         }
         const localDate = new Date(utcTime.toLocaleString('en-US', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
         const year = localDate.getFullYear();
-        const month = String(localDate.getMonth() + 1).padStart(2, '0'); // 月份从0开始，所以要加1
+        const month = String(localDate.getMonth() + 1).padStart(2, '0');
         const day = String(localDate.getDate()).padStart(2, '0');
 
-        // 返回格式化的日期字符串
         return `${year}/${month}/${day}`;
     }
 
@@ -1275,8 +1359,8 @@ export class DefaultSettingTab extends PluginSettingTab {
                 .addButton(button => button
                     .setButtonText('Manage Storage')
                     .onClick(async () => {
-                        if (this.plugin.settings.userInfo.token) {
-                            const temp_token = await this.getTempToken();
+                        if (this.plugin.settings.userInfo.refresh_token) {
+                            const temp_token = await getTempToken(this.plugin);
                             if (!temp_token) {
                                 console.error("temp token failed to obtain");
                                 return;
@@ -1325,7 +1409,7 @@ export class DefaultSettingTab extends PluginSettingTab {
         if (this.userInfo.isVerified) {
             emailVerificationSetting
                 .setDesc('Your email has been verified');
-            emailVerificationSetting.descEl.style.color = 'green';
+            emailVerificationSetting.descEl.addClass('email-verified');
         } else {
             emailVerificationSetting
                 .setDesc('Email is not verified. Verify your email to receive an additional 512 MB of storage.')
@@ -1340,8 +1424,8 @@ export class DefaultSettingTab extends PluginSettingTab {
                             } finally {
                                 this.verifiedButton.disabled = false;
                             }
-                                               }));
-            emailVerificationSetting.descEl.style.color = 'red';
+                        }));
+            emailVerificationSetting.descEl.addClass('email-not-verified');
         }
     }
 
@@ -1366,7 +1450,7 @@ export class DefaultSettingTab extends PluginSettingTab {
 
     private async refreshStorageUsage(): Promise<boolean> {
         try {
-            const response = await apiRequest(this.plugin, 'POST', '/refresh_storage_usage', {});
+            const response = await apiRequestByAccessToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + '/refresh_storage_usage', {});
             if (response) {
                 this.userInfo.storageUsed = response.storage_used;
                 this.userInfo.storageLimit = response.storage_limit;
@@ -1449,7 +1533,7 @@ export class DefaultSettingTab extends PluginSettingTab {
 
     private async resetPassword(email: string) {
         try {
-            const response = await apiRequest(this.plugin, 'POST', '/send_reset_mail', { email });
+            const response = await apiRequestByAccessToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + '/send_reset_mail', { email });
 
             if (response) {
                 new Notice('Password reset email has been sent. Please check your inbox.');
@@ -1503,11 +1587,12 @@ export class DefaultSettingTab extends PluginSettingTab {
         }
 
         try {
-            const response = await apiRequest(this.plugin, 'POST', '/register',
+            const response = await apiRequestByAccessToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + '/register',
                 { email, password, region });
 
             if (response) {
-                this.plugin.settings.userInfo.token = response.token;
+                this.plugin.settings.userInfo.access_token = response.access_token;
+                this.plugin.settings.userInfo.refresh_token = response.refresh_token;
                 await this.plugin.saveSettings();
                 this.display();
                 // initS3Client(this.plugin);
@@ -1520,10 +1605,11 @@ export class DefaultSettingTab extends PluginSettingTab {
 
     private async loginUser(email: string, password: string) {
         try {
-            const response = await apiRequest(this.plugin, 'POST', '/login', { email, password });
+            const response = await apiRequestByAccessToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + '/login', { email, password });
 
             if (response) {
-                this.plugin.settings.userInfo.token = response.token;
+                this.plugin.settings.userInfo.access_token = response.access_token;
+                this.plugin.settings.userInfo.refresh_token = response.refresh_token;
                 await this.plugin.saveSettings();
                 this.display();
                 // initS3Client(this.plugin);
@@ -1535,15 +1621,15 @@ export class DefaultSettingTab extends PluginSettingTab {
     }
 
     private async logoutUser() {
-        const { token } = this.plugin.settings.userInfo;
 
         try {
-            await apiRequest(this.plugin, 'POST', '/logout', {});
+            await apiRequestByRefreshToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + '/logout', {});
         } catch (error) {
             console.error('Logout failed:', error);
         }
 
-        this.plugin.settings.userInfo.token = null;
+        this.plugin.settings.userInfo.access_token = null;
+        this.plugin.settings.userInfo.refresh_token = null;
         this.plugin.s3Client_aws = null;
         await this.plugin.saveSettings();
         this.display();
@@ -1557,8 +1643,6 @@ export class DefaultSettingTab extends PluginSettingTab {
             text: 'If you have any questions or need support, please contact us at: support@antmight.com',
             cls: 'setting-item-description'
         });
-        contactInfo.style.fontSize = '14px';
-        contactInfo.style.marginTop = '0';
     }
 }
 
@@ -1582,8 +1666,6 @@ class FolderSuggest {
 
         document.body.appendChild(suggestEl);
         const { left, top } = inputEl.getBoundingClientRect();
-        suggestEl.style.left = `${left}px`;
-        suggestEl.style.top = `${top + inputEl.offsetHeight}px`;
 
         inputEl.addEventListener('blur', () => {
             setTimeout(() => suggestEl.remove(), 200);
@@ -1591,26 +1673,6 @@ class FolderSuggest {
     }
 }
 
-// Add styles
-const style = document.createElement('style');
-style.textContent = `
-.suggestion-container {
-    position: absolute;
-    background: white;
-    border: 1px solid #ccc;
-    z-index: 1000;
-    max-height: 200px;
-    overflow-y: auto;
-}
-.suggestion-container div {
-    padding: 4px 8px;
-    cursor: pointer;
-}
-.suggestion-container div:hover {
-    background: #f0f0f0;
-}
-`;
-document.head.appendChild(style);
 
 class Lock {
     private _isLocked: boolean = false;
@@ -1660,13 +1722,10 @@ class RegionModal extends Modal {
         const description = contentEl.createEl('p', {
             text: 'Please select the region closest to you. This will help optimize your file upload and download speeds. Once selected, this cannot be changed.',
         });
-        description.style.color = 'red';
-        description.style.fontSize = '0.8em';  // Set small font size
+        description.addClass('custom-setting-item-description');
 
         // Add an OK button and place it in the bottom right corner
         const buttonContainer = contentEl.createDiv({ cls: 'modal-button-container' });
-        buttonContainer.style.display = 'flex';
-        buttonContainer.style.justifyContent = 'flex-end';  // Right-align button
 
         const okButton = new ButtonComponent(buttonContainer);
         okButton.setButtonText('OK').onClick(() => {
@@ -1723,11 +1782,11 @@ class RegionModal extends Modal {
 }
 
 class ChangePasswordModal extends Modal {
-    plugin: MyPlugin;
+    plugin: CloudStoragePlugin;
     oldPassword: string = '';
     newPassword: string = '';
 
-    constructor(app: App, plugin: MyPlugin) {
+    constructor(app: App, plugin: CloudStoragePlugin) {
         super(app);
         this.plugin = plugin;
     }
@@ -1763,7 +1822,7 @@ class ChangePasswordModal extends Modal {
         }
 
         try {
-            const response = await apiRequest(this.plugin, 'POST', "/change_password",
+            const response = await apiRequestByAccessToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + "/change_password",
                 {
                     'old_password': await hashPassword(this.oldPassword),
                     'new_password': await hashPassword(this.newPassword),
@@ -1820,29 +1879,65 @@ function validatePassword(password: string): boolean {
     return true;
 }
 
-async function apiRequest(plugin: MyPlugin, method: string, endpoint: string, data: any) {
+async function apiRequestByAccessToken(plugin: CloudStoragePlugin, method: string, url: string, data: any, token: string | null = null, type: string = 'json') {
     try {
         const response = await requestUrl({
-            url: USER_MANAGER_BASE_URL + endpoint,
+            url: url,
             method: method,
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${plugin.settings.userInfo.token}`
+                'Authorization': `Bearer ${token ?? plugin.settings.userInfo.access_token}`
             },
             body: JSON.stringify(data)
         });
-
-        if (response.status === 200 && response.json.error_code === 0) {
-            console.debug('apiRequest:', response);
+        if (response.status === 200 && type == 'stream') {
+            return response
+        }
+        else if (response.status === 200 && response.json.error_code === 0) {
+            console.debug('apiRequestByAccessToken:', response);
             return response.json;
         } else if (response.status === 200 && response.json.error_code === 6001) {
-            // Invalid access token, please relogin
-            new Notice('Error: Invalid access token, please relogin.');
-            return null;
+            const response2 = await refreshAccessToken(plugin);
+            if (response2) {
+                const response3 = await requestUrl({
+                    url: url,
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token ?? plugin.settings.userInfo.access_token}`
+                    },
+                    body: JSON.stringify(data)
+                });
+                if (response.status === 200 && type == 'stream') {
+                    return response
+                }
+                else if (response3.status === 200 && response3.json.error_code === 0) {
+                    return response3.json;
+                } else if (response3.status === 200 && response3.json.error_code === 6001) {
+                    // Invalid access token, please relogin
+                    new Notice('Error: Invalid access token, please relogin.');
+                    return null;
+                } else if (response3.status === 200 && response3.json.error_code === 7003) {
+                    new Notice(response3.json.error_message);
+                    return response3.json;
+                } else if (response3.status === 200 && response3.json.error_code === 7002) {
+                    new Notice(response3.json.error_message);
+                    return response3.json;
+                }
+                else {
+                    handleResponse(response.json);
+                    return null;
+                }
+            }
+            else {
+                new Notice('Error: Invalid access token, please relogin.');
+                return null;
+            }
+
         } else if (response.status === 200 && response.json.error_code === 7003) {
             new Notice(response.json.error_message);
             return response.json;
-        }else if (response.status === 200 && response.json.error_code === 7002) {
+        } else if (response.status === 200 && response.json.error_code === 7002) {
             new Notice(response.json.error_message);
             return response.json;
         }
@@ -1851,8 +1946,86 @@ async function apiRequest(plugin: MyPlugin, method: string, endpoint: string, da
             return null;
         }
     } catch (error) {
-        console.error('apiRequest Error:', error);
+        console.error('apiRequestByAccessToken Error:', error);
         return null;
     }
 }
-       
+
+async function apiRequestByRefreshToken(plugin: CloudStoragePlugin, method: string, url: string, data: any, type: string = 'json') {
+    try {
+        const response = await requestUrl({
+            url: url,
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${plugin.settings.userInfo.refresh_token}`
+            },
+            body: JSON.stringify(data)
+        });
+
+        if (response.status === 200 && type == 'stream') {
+            return response
+        }
+        else if (response.status === 200 && response.json.error_code === 0) {
+            console.debug('apiRequestByRefreshToken:', response);
+            return response.json;
+        } else if (response.status === 200 && response.json.error_code === 6001) {
+            // Invalid access token, please relogin
+            new Notice('Error: Invalid access token, please relogin.');
+            return null;
+        } else if (response.status === 200 && response.json.error_code === 7003) {
+            new Notice(response.json.error_message);
+            return response.json;
+        } else if (response.status === 200 && response.json.error_code === 7002) {
+            new Notice(response.json.error_message);
+            return response.json;
+        }
+        else {
+            handleResponse(response.json);
+            return null;
+        }
+    } catch (error) {
+        console.error('apiRequestByRefreshToken Error:', error);
+        return null;
+    }
+}
+
+async function refreshAccessToken(plugin: CloudStoragePlugin) {
+    try {
+        const response = await apiRequestByRefreshToken(plugin, 'POST', USER_MANAGER_BASE_URL + '/refresh_access_token', {});
+
+        if (response) {
+            plugin.settings.userInfo.access_token = response.access_token;
+            await plugin.saveSettings();
+            console.info('Refresh access token success');
+            return response.access_token;
+        }
+    } catch (error) {
+        console.error('getAccessToken', error);
+        new Notice('Get access token failed');
+        return null;
+
+    }
+}
+
+async function getTempToken(plugin: CloudStoragePlugin) {
+    try {
+        const response = await requestUrl({
+            url: USER_MANAGER_BASE_URL + '/get_temp_token',
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${plugin.settings.userInfo.access_token}`
+            }
+        });
+
+        if (response.status === 200 && response.json.error_code === 0) {
+            const data = await response.json;
+            return data.tmp_token;
+        }
+    } catch (error) {
+        console.error('tmp_token', error);
+        new Notice('Unable to obtain token');
+        return null;
+
+    }
+}

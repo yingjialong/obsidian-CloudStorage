@@ -10,10 +10,11 @@ If your plugin does not need CSS, delete this file.
     margin-bottom: 24px;
 }
 
-.setting-item-description {
+.custom-setting-item-description {
     font-size: 12px;
-    color: var(--text-muted);
+    color: var(--text-error);
     margin-top: 0;
+    font-style: italic;
 }
 
 .subscription-header {
@@ -40,4 +41,21 @@ If your plugin does not need CSS, delete this file.
     margin-top: 2em;
     padding-top: 1em;
     border-top: 1px solid var(--background-modifier-border);
+}
+
+.email-desc {
+    color: var(--text-success);
+}
+
+.email-verified {
+    color: var(--text-success);
+}
+
+.email-not-verified {
+    color: var(--text-error);
+}
+
+.modal-button-container {
+    display: flex;
+    justify-content: flex-end;
 }
