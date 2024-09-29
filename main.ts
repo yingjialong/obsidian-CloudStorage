@@ -214,10 +214,11 @@ export default class CloudStoragePlugin extends Plugin {
             console.info(`File ${key} already uploaded response: ${response}`);
 
             const folder_id = response.folder_id;
+            const file_key = response.file_key;
             const public_code = response.public_code;
             const private_code = response.private_code;
 
-            return [UploadStatus.Success, key, folder_id, public_code, private_code];
+            return [UploadStatus.Success, file_key, folder_id, public_code, private_code];
         }
 
         if (response.upload_status == 'storagelimit') {
@@ -313,10 +314,11 @@ export default class CloudStoragePlugin extends Plugin {
                 throw new Error(`Failed to upload part ${file.name}`);
             }
             const folder_id = response.folder_id;
+            const file_key = response.file_key;
             const public_code = response.public_code;
             const private_code = response.private_code;
 
-            return [UploadStatus.Success, key, folder_id, public_code, private_code];
+            return [UploadStatus.Success, file_key, folder_id, public_code, private_code];
 
         } catch (error) {
             console.error("Error during file upload:", error);
