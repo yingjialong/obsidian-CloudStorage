@@ -1798,8 +1798,8 @@ async function apiRequestByAccessToken(plugin: CloudStoragePlugin, method: strin
                     },
                     body: JSON.stringify(data)
                 });
-                if (response.status === 200 && type == 'stream') {
-                    return response
+                if (response3.status === 200 && type == 'stream') {
+                    return response3
                 }
                 else if (response3.status === 200 && response3.json.error_code === 0) {
                     return response3.json;
@@ -1815,7 +1815,7 @@ async function apiRequestByAccessToken(plugin: CloudStoragePlugin, method: strin
                     return response3.json;
                 }
                 else {
-                    handleResponse(response.json.detail);
+                    handleResponse(response3.json.detail);
                     return null;
                 }
             }
