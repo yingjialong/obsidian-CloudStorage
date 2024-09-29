@@ -1801,6 +1801,10 @@ async function apiRequestByAccessToken(plugin: CloudStoragePlugin, method: strin
                 if (response3.status === 200 && type == 'stream') {
                     return response3
                 }
+                else if (response3.status === 200 && response3.json.detail.error_code === 0) {
+                    console.debug('apiRequestByAccessToken:', response3);
+                    return response3.json.detail;
+                }
                 else if (response3.status === 200 && response3.json.error_code === 0) {
                     return response3.json;
                 } else if (response3.status === 200 && response3.json.error_code === 6001) {
