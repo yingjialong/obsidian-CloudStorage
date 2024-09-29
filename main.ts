@@ -71,7 +71,7 @@ const DEFAULT_SETTINGS: CloudStorageSettings = {
 };
 
 const enum UploadStatus {
-    Seccess, // upload seccessfully
+    Success, // upload successfully
     StorageLimit, // upload skipped due to storage limit
     PerFileMaxLimit // upload skipped due to per file limit
 }
@@ -213,12 +213,11 @@ export default class CloudStoragePlugin extends Plugin {
             await this.updateUploadedFileSize(file.stat.size);
             console.info(`File ${key} already uploaded response: ${response}`);
 
-            const fileKey = response.key;
             const folder_id = response.folder_id;
             const public_code = response.public_code;
             const private_code = response.private_code;
 
-            return [UploadStatus.Seccess, fileKey, folder_id, public_code, private_code];
+            return [UploadStatus.Success, key, folder_id, public_code, private_code];
         }
 
         if (response.upload_status == 'storagelimit') {
@@ -313,12 +312,11 @@ export default class CloudStoragePlugin extends Plugin {
                 console.error(`Failed to complete multipart upload,file:${key}`);
                 throw new Error(`Failed to upload part ${file.name}`);
             }
-            const fileKey = key;
             const folder_id = response.folder_id;
             const public_code = response.public_code;
             const private_code = response.private_code;
 
-            return [UploadStatus.Seccess, fileKey, folder_id, public_code, private_code];
+            return [UploadStatus.Success, key, folder_id, public_code, private_code];
 
         } catch (error) {
             console.error("Error during file upload:", error);
@@ -766,7 +764,7 @@ export default class CloudStoragePlugin extends Plugin {
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 const result = await this.uploadFileWithResume(file, newFileName);
-                if (result && result[0] === UploadStatus.Seccess) {
+                if (result && result[0] === UploadStatus.Success) {
                     await this.updateUploadedSuccessFileInfo();
                     await this.updateUploadedFileCount();
                     // Update references in documents
