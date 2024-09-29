@@ -1,7 +1,7 @@
 {
 	"id": "cloud-storage",
 	"name": "Cloud Storage",
-	"version": "1.1.9",
+	"version": "1.1.10",
 	"minAppVersion": "1.0.0",
 	"description": "Allows users to upload local files to the cloud, reducing the burden on local vaults and enabling seamless synchronization across multiple devices.",
 	"author": "majiajun",

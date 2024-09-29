@@ -6,8 +6,8 @@ import CryptoJS from 'crypto-js';
 const PART_MAX_RETRIES = 3;
 const DEFAULT_MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
 const LINK_BASE_URL = "https://link.obcs.top";
-// const LINK_BASE_URL = "http://127.0.0.1:5002";
 const USER_MANAGER_BASE_URL = 'https://obcs-api.obcs.top/api';
+// const LINK_BASE_URL = "http://127.0.0.1:5002";
 // const USER_MANAGER_BASE_URL = 'http://127.0.0.1:5001/api';
 
 interface UploadProgress {
@@ -214,11 +214,11 @@ export default class CloudStoragePlugin extends Plugin {
             console.info(`File ${key} already uploaded response: ${response}`);
 
             const fileKey = response.key;
-            const bucket_id = response.bucket_id;
+            const folder_id = response.folder_id;
             const public_code = response.public_code;
             const private_code = response.private_code;
 
-            return [UploadStatus.Seccess, fileKey, bucket_id, public_code, private_code];
+            return [UploadStatus.Seccess, fileKey, folder_id, public_code, private_code];
         }
 
         if (response.upload_status == 'storagelimit') {
@@ -314,11 +314,11 @@ export default class CloudStoragePlugin extends Plugin {
                 throw new Error(`Failed to upload part ${file.name}`);
             }
             const fileKey = key;
-            const bucket_id = response.bucket_id;
+            const folder_id = response.folder_id;
             const public_code = response.public_code;
             const private_code = response.private_code;
 
-            return [UploadStatus.Seccess, fileKey, bucket_id, public_code, private_code];
+            return [UploadStatus.Seccess, fileKey, folder_id, public_code, private_code];
 
         } catch (error) {
             console.error("Error during file upload:", error);
@@ -822,7 +822,7 @@ async function initS3Client(plugin: CloudStoragePlugin) {
             });
 
             if (response.status === 200 && response.json.error_code === 0) {
-                const data = response.json;
+                const data = response.json.detail;
 
                 plugin.bucket = data.user_bucket;
                 plugin.bucket_id = data.user_bucket_id;
@@ -837,7 +837,7 @@ async function initS3Client(plugin: CloudStoragePlugin) {
                     forcePathStyle: true
                 });
             } else {
-                handleResponse(response.json);
+                handleResponse(response.json.detail);
             }
         } catch (error) {
             console.error('Error initializing S3 client:', error);
@@ -1660,6 +1660,7 @@ class RegionModal extends Modal {
         usGroup.appendChild(new Option('Oregon', 'us-west-1'));
         usGroup.appendChild(new Option('Texas', 'us-central-1'));
         usGroup.appendChild(new Option('N. Virginia', 'us-east-1'));
+        usGroup.appendChild(new Option('N. Virginia 2', 'us-east-2'));
         dropdown.appendChild(usGroup);
     }
 
@@ -1784,10 +1785,10 @@ async function apiRequestByAccessToken(plugin: CloudStoragePlugin, method: strin
         if (response.status === 200 && type == 'stream') {
             return response
         }
-        else if (response.status === 200 && response.json.error_code === 0) {
+        else if (response.status === 200 && response.json.detail.error_code === 0) {
             console.debug('apiRequestByAccessToken:', response);
-            return response.json;
-        } else if (response.status === 200 && response.json.error_code === 6001) {
+            return response.json.detail;
+        } else if (response.status === 200 && response.json.detail.error_code === 6001) {
             const response2 = await refreshAccessToken(plugin);
             if (response2) {
                 const response3 = await requestUrl({
@@ -1816,7 +1817,7 @@ async function apiRequestByAccessToken(plugin: CloudStoragePlugin, method: strin
                     return response3.json;
                 }
                 else {
-                    handleResponse(response.json);
+                    handleResponse(response.json.detail);
                     return null;
                 }
             }
@@ -1825,15 +1826,15 @@ async function apiRequestByAccessToken(plugin: CloudStoragePlugin, method: strin
                 return null;
             }
 
-        } else if (response.status === 200 && response.json.error_code === 7003) {
-            new Notice(response.json.error_message);
-            return response.json;
-        } else if (response.status === 200 && response.json.error_code === 7002) {
-            new Notice(response.json.error_message);
-            return response.json;
+        } else if (response.status === 200 && response.json.detail.error_code === 7003) {
+            new Notice(response.json.detail.error_message);
+            return response.json.detail;
+        } else if (response.status === 200 && response.json.detail.error_code === 7002) {
+            new Notice(response.json.detail.error_message);
+            return response.json.detail;
         }
         else {
-            handleResponse(response.json);
+            handleResponse(response.json.detail);
             return null;
         }
     } catch (error) {
@@ -1857,22 +1858,22 @@ async function apiRequestByRefreshToken(plugin: CloudStoragePlugin, method: stri
         if (response.status === 200 && type == 'stream') {
             return response
         }
-        else if (response.status === 200 && response.json.error_code === 0) {
+        else if (response.status === 200 && response.json.detail.error_code === 0) {
             console.debug('apiRequestByRefreshToken:', response);
-            return response.json;
-        } else if (response.status === 200 && response.json.error_code === 6001) {
+            return response.json.detail;
+        } else if (response.status === 200 && response.json.detail.error_code === 6001) {
             // Invalid access token, please relogin
             new Notice('Error: Invalid access token, please relogin.');
             return null;
-        } else if (response.status === 200 && response.json.error_code === 7003) {
-            new Notice(response.json.error_message);
-            return response.json;
-        } else if (response.status === 200 && response.json.error_code === 7002) {
-            new Notice(response.json.error_message);
-            return response.json;
+        } else if (response.status === 200 && response.json.detail.error_code === 7003) {
+            new Notice(response.json.detail.error_message);
+            return response.json.detail;
+        } else if (response.status === 200 && response.json.detail.error_code === 7002) {
+            new Notice(response.json.detail.error_message);
+            return response.json.detail;
         }
         else {
-            handleResponse(response.json);
+            handleResponse(response.json.detail);
             return null;
         }
     } catch (error) {
@@ -1909,8 +1910,8 @@ async function getTempToken(plugin: CloudStoragePlugin) {
             }
         });
 
-        if (response.status === 200 && response.json.error_code === 0) {
-            const data = await response.json;
+        if (response.status === 200 && response.json.detail.error_code === 0) {
+            const data = await response.json.detail;
             return data.tmp_token;
         }
     } catch (error) {
