@@ -1,7 +1,7 @@
-# Obsidian Cloud Storage
+# Cloud Storage
 [English](README.md) | [中文](README_ZH.md)
 
-Obsidian Cloud Storage is a powerful and user-friendly plugin designed to seamlessly integrate cloud storage capabilities into your Obsidian workflow. This plugin allows you to effortlessly upload your attachments to the cloud, freeing up local storage space and enabling easy sharing and access across all your devices.
+Cloud Storage is a powerful and user-friendly plugin designed to seamlessly integrate cloud storage capabilities into your Obsidian workflow. This plugin allows you to effortlessly upload your attachments to the cloud, freeing up local storage space and enabling easy sharing and access across all your devices.
 
 ## Features
 
@@ -19,7 +19,7 @@ Obsidian Cloud Storage is a powerful and user-friendly plugin designed to seamle
 
 ## Video Demonstrations
 
-Here are some quick video demonstrations to help you get started with Obsidian Cloud Storage:
+Here are some quick video demonstrations to help you get started with Cloud Storage:
 
 [![Guide](https://img.youtube.com/vi/Ga_N2WYFqi8/maxresdefault.jpg)](https://www.youtube.com/watch?v=Ga_N2WYFqi8)
 
@@ -27,14 +27,14 @@ Here are some quick video demonstrations to help you get started with Obsidian C
 
 1. Open Obsidian and navigate to Settings > Community Plugins.
 2. Disable Safe Mode if it's currently enabled.
-3. Click on "Browse" and search for "Obsidian Cloud Storage".
-4. Click "Install" next to the Obsidian Cloud Storage plugin.
+3. Click on "Browse" and search for "Cloud Storage".
+4. Click "Install" next to the Cloud Storage plugin.
 5. Once installed, enable the plugin by toggling the switch next to its name.
 
 ## Quick Start Guide
 
 1. **Account Setup**: 
-   - Open the Obsidian Cloud Storage settings.
+   - Open the Cloud Storage settings.
    - Click on "Sign up" to create a new account or "Log in" if you already have one.
    - Check your email and verify your account to receive additional free storage space.
 
@@ -45,7 +45,7 @@ Here are some quick video demonstrations to help you get started with Obsidian C
 
 3. **Initiate Your First Upload**:
    - Open the command palette (Ctrl/Cmd + P).
-   - Search for and select "Obsidian Cloud Storage: Upload all attachments".
+   - Search for and select "Cloud Storage: Upload all attachments".
    - The plugin will start uploading files from your monitored folders and updating links in your notes.
 
 4. **Verify Uploads**:
@@ -142,6 +142,6 @@ Stay tuned for these exciting updates!
 
 ## Feedback and Contributions
 
-We value your input! If you have suggestions for improvements or new features, please let us know. For those interested in contributing to the development of Obsidian Cloud Storage, check out our [contribution guidelines](#) (Coming soon).
+We value your input! If you have suggestions for improvements or new features, please let us know. For those interested in contributing to the development of Cloud Storage, check out our [contribution guidelines](#) (Coming soon).
 
-Thank you for choosing Obsidian Cloud Storage to enhance your note-taking experience!
+Thank you for choosing Cloud Storage to enhance your note-taking experience!

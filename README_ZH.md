@@ -1,7 +1,7 @@
-# Obsidian Cloud Storage
+# Cloud Storage
  [中文](README_ZH.md) | [English](README.md)
 
-Obsidian Cloud Storage 是一款功能强大且用户友好的 Obsidian 插件，旨在将云存储功能无缝集成到您的笔记工作流程中。这个插件允许您轻松地将附件上传到云端，从而释放本地存储空间，并实现跨设备的轻松共享和访问。
+Cloud Storage 是一款功能强大且用户友好的 Obsidian 插件，旨在将云存储功能无缝集成到您的笔记工作流程中。这个插件允许您轻松地将附件上传到云端，从而释放本地存储空间，并实现跨设备的轻松共享和访问。
 
 ## 主要特性
 
@@ -19,7 +19,7 @@ Obsidian Cloud Storage 是一款功能强大且用户友好的 Obsidian 插件�
 
 ## 视频演示
 
-以下是一些快速视频演示，帮助您开始使用 Obsidian Cloud Storage：
+以下是一些快速视频演示，帮助您开始使用 Cloud Storage：
 
 [![指南](https://link.obcs.top/file/a8ef7ca954d01ec19f5347d475de8d8b/Pasted_image_20240913201845_20240913T121855_yp5i.png)](https://www.bilibili.com/video/BV1cW4ZeoExX/)
 
@@ -27,14 +27,14 @@ Obsidian Cloud Storage 是一款功能强大且用户友好的 Obsidian 插件�
 
 1. 打开 Obsidian，进入设置 > 第三方插件。
 2. 如果安全模式当前处于启用状态，请禁用它。
-3. 点击"浏览"并搜索"Obsidian Cloud Storage"。
-4. 点击 Obsidian Cloud Storage 插件旁边的"安装"。
+3. 点击"浏览"并搜索"Cloud Storage"。
+4. 点击 Cloud Storage 插件旁边的"安装"。
 5. 安装完成后，通过切换插件名称旁边的开关来启用插件。
 
 ## 快速入门指南
 
 1. **账户设置**：
-   - 打开 Obsidian Cloud Storage 设置。
+   - 打开 Cloud Storage 设置。
    - 点击"注册"创建新账户，或如果已有账户则点击"登录"。
    - 检查您的电子邮件并验证账户，以获得额外的免费存储空间。
 
@@ -45,7 +45,7 @@ Obsidian Cloud Storage 是一款功能强大且用户友好的 Obsidian 插件�
 
 3. **开始您的首次上传**：
    - 打开命令面板（Ctrl/Cmd + P）。
-   - 搜索并选择"Obsidian Cloud Storage: 上传所有附件"。
+   - 搜索并选择"Cloud Storage: 上传所有附件"。
    - 插件将开始从您监控的文件夹上传文件，并更新笔记中的链接。
 
 4. **验证上传**：
@@ -143,6 +143,6 @@ Obsidian Cloud Storage 是一款功能强大且用户友好的 Obsidian 插件�
 
 ## 反馈和贡献
 
-我们重视您的意见！如果您有改进建议或新功能想法，请告诉我们。对于那些有兴趣为 Obsidian Cloud Storage 的开发做出贡献的人，请查看我们的[贡献指南](#)（即将推出）。
+我们重视您的意见！如果您有改进建议或新功能想法，请告诉我们。对于那些有兴趣为 Cloud Storage 的开发做出贡献的人，请查看我们的[贡献指南](#)（即将推出）。
 
-感谢您选择 Obsidian Cloud Storage 来增强您的笔记体验！
+感谢您选择 Cloud Storage 来增强您的笔记体验！

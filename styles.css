@@ -1,11 +1,3 @@
-/*
-
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
-
-If your plugin does not need CSS, delete this file.
-
-*/
 .setting-section {
     margin-bottom: 24px;
 }
@@ -55,7 +47,7 @@ If your plugin does not need CSS, delete this file.
     color: var(--text-error);
 }
 
-.modal-button-container {
+.custom-modal-button-container {
     display: flex;
     justify-content: flex-end;
 }

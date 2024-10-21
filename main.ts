@@ -1,4 +1,4 @@
-import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, TFile, TFolder, setIcon, ButtonComponent, RequestUrlResponse, TAbstractFile, normalizePath, moment, MarkdownView } from 'obsidian';
+import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, TFile, TFolder, setIcon, ButtonComponent, RequestUrlResponse, TAbstractFile, normalizePath, moment, getBlobArrayBuffer } from 'obsidian';
 import { S3Client } from "@aws-sdk/client-s3";
 import CryptoJS from 'crypto-js';
 
@@ -345,7 +345,7 @@ export default class CloudStoragePlugin extends Plugin {
             const chunk = fileBlob.slice(offset, Math.min(offset + chunkSize, fileSize));
 
             // Convert Blob chunk to ArrayBuffer
-            const chunkBuffer = await this.readBlobAsArrayBuffer(chunk);
+            const chunkBuffer = await getBlobArrayBuffer(chunk);
 
             // Convert ArrayBuffer to CryptoJS supported WordArray
             const wordArray = CryptoJS.lib.WordArray.create(chunkBuffer as ArrayBuffer);
@@ -366,23 +366,7 @@ export default class CloudStoragePlugin extends Plugin {
         return md5Hash;
     }
 
-    // Helper method: Read Blob as ArrayBuffer
-    private async readBlobAsArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                if (reader.result) {
-                    resolve(reader.result as ArrayBuffer);
-                } else {
-                    reject(new Error("Failed to read blob as ArrayBuffer"));
-                }
-            };
-            reader.onerror = () => reject(reader.error);
-            reader.readAsArrayBuffer(blob);
-        });
-    }
-
-    async updateSkipedFileCount() {
+    async updateSkippedFileCount() {
         await this.countLocker.acquire()
         try {
             this.skipUploadCount++;
@@ -643,7 +627,7 @@ export default class CloudStoragePlugin extends Plugin {
             }
         }
         await Promise.all(allFilePromises);
-        new Notice(`Storage completed: success ${this.uploadedSuccessFileCount}, failure ${this.uploadedErrorFileCount}, skiped ${this.skipUploadCount}`);
+        new Notice(`Storage completed: success ${this.uploadedSuccessFileCount}, failure ${this.uploadedErrorFileCount}, skipped ${this.skipUploadCount}`);
         this.statusBarItemEl.empty();
         const iconEl = this.statusBarItemEl.createEl("span", { cls: "status-bar-item-icon" });
         setIcon(iconEl, 'file-up');
@@ -660,7 +644,7 @@ export default class CloudStoragePlugin extends Plugin {
                     await new Promise(resolve => setTimeout(resolve, 500));
                 }
                 else {
-                    await this.updateSkipedFileCount()
+                    await this.updateSkippedFileCount()
                     new Notice(`Skipping file ${file.path}`);
                 }
             }
@@ -784,11 +768,11 @@ export default class CloudStoragePlugin extends Plugin {
                     return;
                 }
                 else if (result && result[0] === UploadStatus.StorageLimit) {
-                    await this.updateSkipedFileCount()
+                    await this.updateSkippedFileCount()
                     return;
                 }
                 else if (result && result[0] === UploadStatus.PerFileMaxLimit) {
-                    await this.updateSkipedFileCount()
+                    await this.updateSkippedFileCount()
                     return;
                 }
 
@@ -888,7 +872,6 @@ export class CloudStorageSettingTab extends PluginSettingTab {
         this.displayUserAccountSection(containerEl);
         this.displayGeneralSettingsSection(containerEl);
         this.displaySubscriptionFeaturesSection(containerEl);
-        this.displayUpcomingFeaturesSection(containerEl);
         this.displayContactInfo(containerEl);
         this.fetchUserInfo().then(() => {
             this.updateUserAccountSection(containerEl);
@@ -933,7 +916,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
     private displayUserAccountSection(containerEl: HTMLElement) {
         const accountSection = containerEl.createEl('div', { cls: 'setting-section' });
-        accountSection.createEl('h3', { text: 'User Account' });
+        new Setting(accountSection).setName('User Account').setHeading();
 
         if (this.plugin.settings.userInfo.refresh_token) {
             // User is logged in
@@ -1021,7 +1004,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
     private displayGeneralSettingsSection(containerEl: HTMLElement) {
         const generalSection = containerEl.createEl('div', { cls: 'setting-section' });
-        generalSection.createEl('h3', { text: 'General Settings' });
+        new Setting(generalSection).setName('Local').setHeading();
 
         new Setting(generalSection)
             .setName('Monitored Folders')
@@ -1084,9 +1067,9 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
     private displaySubscriptionFeaturesSection(containerEl: HTMLElement) {
         const subscriptionSection = containerEl.createEl('div', { cls: 'setting-section subscription-section' });
+        
+        new Setting(subscriptionSection).setName('Subscription').setHeading();
         const headerContainer = subscriptionSection.createEl('div', { cls: 'subscription-header' });
-
-        headerContainer.createEl('h3', { text: 'Subscription Features', cls: 'subscription-title' });
 
         const upgradeButton = headerContainer.createEl('button', {
             text: 'Upgrade',
@@ -1156,24 +1139,6 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 }));
     }
 
-    private displayUpcomingFeaturesSection(containerEl: HTMLElement) {
-        const upcomingSection = containerEl.createEl('div', { cls: 'setting-section' });
-        upcomingSection.createEl('h3', { text: 'Upcoming Features' });
-
-        const featureList = upcomingSection.createEl('ul');
-        const upcomingFeatures = [
-            'Add a link conversion feature, enabling to switch between public and private modes for uploaded files.',
-            'Implement a comprehensive backup feature, allowing users to easily backup their uploaded files and facilitate future migrations.',
-            'Introduce email-based authentication for accessing the file management interface, enhancing user convenience and security.',
-            'Develop a feature for generating temporary share links with customizable expiration times, improving file sharing capabilities.',
-            'Add functionality for uploading attachments within individual Markdown files, streamlining the content management process.',
-            'Create a filename blacklist feature, giving users more control over which files are eligible for upload.'
-        ];
-
-        upcomingFeatures.forEach(feature => {
-            featureList.createEl('li', { text: feature });
-        });
-    }
 
     private async resendVerificationEmail(): Promise<void> {
         try {
@@ -1528,7 +1493,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
     private displayContactInfo(containerEl: HTMLElement) {
         const contactSection = containerEl.createEl('div', { cls: 'setting-section' });
-        contactSection.createEl('h3', { text: 'Contact Us' });
+        new Setting(contactSection).setName('Contact Us').setHeading();
 
         const contactInfo = contactSection.createEl('p', {
             text: 'If you have any questions or need support, please contact us at: support@antmight.com',
@@ -1616,7 +1581,7 @@ class RegionModal extends Modal {
         description.addClass('custom-setting-item-description');
 
         // Add an OK button and place it in the bottom right corner
-        const buttonContainer = contentEl.createDiv({ cls: 'modal-button-container' });
+        const buttonContainer = contentEl.createDiv({ cls: 'custom-modal-button-container' });
 
         const okButton = new ButtonComponent(buttonContainer);
         okButton.setButtonText('OK').onClick(() => {
