@@ -118,8 +118,8 @@ export default class CloudStoragePlugin extends Plugin {
         // await initS3Client(this);
 
         this.addCommand({
-            id: 'upload-all-attachments',
-            name: 'Upload all attachments',
+            id: 'upload-attachments',
+            name: 'Upload attachments',
             callback: () => this.uploadAllAttachments()
         });
 
@@ -1576,7 +1576,7 @@ class RegionModal extends Modal {
 
         // Create a prompt message, set to red, small font size
         const description = contentEl.createEl('p', {
-            text: 'Please select the region closest to you. This will help optimize your file upload and download speeds. Once selected, this cannot be changed.',
+            text: 'Please select the region closest to you. This will help optimize your file upload and download speeds.',
         });
         description.addClass('custom-setting-item-description');
 
