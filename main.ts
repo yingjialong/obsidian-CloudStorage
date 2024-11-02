@@ -1,6 +1,8 @@
 import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, TFile, TFolder, setIcon, ButtonComponent, RequestUrlResponse, TAbstractFile, normalizePath, moment, getBlobArrayBuffer } from 'obsidian';
-import { S3Client } from "@aws-sdk/client-s3";
 import CryptoJS from 'crypto-js';
+import { getClient } from "customS3Client";
+import type { S3Config } from "./util/baseTypes";
+import { FakeFsS3 } from "./util/fsS3";
 
 // Configuration
 const PART_MAX_RETRIES = 3;
@@ -73,15 +75,16 @@ const DEFAULT_SETTINGS: CloudStorageSettings = {
 const enum UploadStatus {
     Success, // upload successfully
     StorageLimit, // upload skipped due to storage limit
-    PerFileMaxLimit // upload skipped due to per file limit
+    PerFileMaxLimit, // upload skipped due to per file limit
+    CustomS3UploadError // error occurred when uploading to S3
 }
 
 export default class CloudStoragePlugin extends Plugin {
     settings: CloudStorageSettings;
-    s3Client_aws: S3Client | null = null;
-    customS3Client: S3Client | null = null;
+    customS3Client: FakeFsS3 | null = null;
     bucket_id: string;
     bucket: string;
+    folderName: string;
     isCloudStorage: boolean = false;
     statusBarItemEl: HTMLElement;
     skipUploadCount: number = 0; // Number of files skipped
@@ -105,6 +108,19 @@ export default class CloudStoragePlugin extends Plugin {
     private originalWindowOpen: typeof window.open;
     private editorPlugin: any = null;
 
+    initCustomS3Client() {
+        if(this.settings.storageType === "custom"){
+            const config: S3Config = {
+                s3Endpoint: this.settings.customS3Endpoint,
+                s3Region: this.settings.customS3Region,
+                s3AccessKeyID: this.settings.customS3AccessKey,
+                s3SecretAccessKey: this.settings.customS3SecretKey,
+                s3BucketName: this.settings.customS3Bucket
+            };
+            this.customS3Client = getClient(config);
+        }
+    }
+
 
     async onload() {
         console.info('Assets Upload plugin loaded');
@@ -115,7 +131,7 @@ export default class CloudStoragePlugin extends Plugin {
         this.countLocker = new Lock();
         this.updateLinkLocker = new Lock();
 
-        // await initS3Client(this);
+        this.initCustomS3Client();
 
         this.addCommand({
             id: 'upload-attachments',
@@ -327,6 +343,39 @@ export default class CloudStoragePlugin extends Plugin {
         }
     }
 
+    async uploadFileForCustomeS3(file: TFile, key: string): Promise<[number, string, string, string, string] | null> {
+        if(!this.customS3Client)
+        {
+            this.initCustomS3Client(); 
+        }
+        const fullKey = this.folderName+"/"+key;
+        const fileContent = await this.app.vault.adapter.readBinary(file.path);
+        let retries = 0;
+        try {
+            while (retries < PART_MAX_RETRIES) {
+                const res = await this.customS3Client!.uploadFile(file, fullKey, this.app);
+                if (res) {
+                    return [UploadStatus.Success, fullKey, "", "", ""];
+                }  
+            }
+        }
+        catch (error) {
+            retries++;
+            if (retries >= PART_MAX_RETRIES) {
+                console.error(`Failed to upload ${file.name} after ${PART_MAX_RETRIES} retries. ${error}`);
+                throw error;
+            }
+            else {
+                console.warn(`Error uploading part ${file.name}. Retrying... (${retries + 1}/${PART_MAX_RETRIES})`);
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000 * retries)); // Exponential backoff
+        }
+
+        return [UploadStatus.CustomS3UploadError, "", "", "", ""];
+
+        
+    }
+
     async calculateMD5(file: TFile): Promise<string> {
 
         // Read the entire file as Blob
@@ -508,7 +557,11 @@ export default class CloudStoragePlugin extends Plugin {
                 }
                 await this.updateLinkLocker.acquire(originalName);
                 try {
-                    const url = encodeURI(`${LINK_BASE_URL}/${safetyType}/${bucketid}/${safetyCode}/${fileKey}`)
+                    let url = ""
+                    if (this.settings.storageType === "custom")
+                        url = encodeURI(`${this.settings.customS3BaseUrl}/${fileKey}`)
+                    else
+                        url = encodeURI(`${LINK_BASE_URL}/${safetyType}/${bucketid}/${safetyCode}/${fileKey}`)
                     const content = await this.app.vault.read(file);
                     const replace_originalName = originalName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                     let newContent = content;
@@ -552,7 +605,11 @@ export default class CloudStoragePlugin extends Plugin {
                 }
                 await this.updateLinkLocker.acquire(originalName);
                 try {
-                    const url = encodeURI(`${LINK_BASE_URL}/${safetyType}/${bucketid}/${safetyCode}/${fileKey}`)
+                    let url = ""
+                    if (this.settings.storageType === "custom")
+                        url = encodeURI(`${this.settings.customS3BaseUrl}/${fileKey}`)
+                    else
+                        url = encodeURI(`${LINK_BASE_URL}/${safetyType}/${bucketid}/${safetyCode}/${fileKey}`)
                     const content = await this.app.vault.read(file);
                     const replace_originalName = originalName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                     let newContent = content;
@@ -581,10 +638,10 @@ export default class CloudStoragePlugin extends Plugin {
     }
 
     async uploadAllAttachments() {
-        if (this.settings.storageType === "custom") {
-            new Notice("Custom storage are not supported at the moment, coming soon.");
-            return;
-        }
+        // if (this.settings.storageType === "custom") {
+        //     new Notice("Custom storage are not supported at the moment, coming soon.");
+        //     return;
+        // }
 
         if (this.proccessing) {
             new Notice("Please wait for the previous upload to finish.");
@@ -598,10 +655,20 @@ export default class CloudStoragePlugin extends Plugin {
             return;
         }
 
-        const response = await apiRequestByAccessToken(this, 'POST', USER_MANAGER_BASE_URL + "/get_user_type", {});
+        const storageType = this.settings.storageType;
+        const response = await apiRequestByAccessToken(this, 'POST', USER_MANAGER_BASE_URL + "/get_user_simple_info", {"storageType":storageType});
         if (response) {
             this.userType = response.user_type;
+            this.folderName = response.folder_name;
             this.isVerified = response.is_verified;
+        }
+        else
+        {
+            this.userType = "";
+            this.folderName = "";
+            this.isVerified = false;
+            new Notice("Network Error. Please check your internet connection.");
+            return;
         }
 
         this.proccessing = true;
@@ -652,6 +719,9 @@ export default class CloudStoragePlugin extends Plugin {
     }
 
     private shouldProcessFile(file: TFile): boolean {
+        if(this.userType === "")
+            return false;
+
         if (this.userType === 'register') {
             if (file.stat.size > DEFAULT_MAX_UPLOAD_SIZE) {
                 return false;
@@ -749,7 +819,15 @@ export default class CloudStoragePlugin extends Plugin {
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                const result = await this.uploadFileWithResume(file, newFileName);
+                let result
+                if (this.settings.storageType === "custom")
+                {
+                    result = await this.uploadFileForCustomeS3(file, newFileName);
+                }
+                else{
+                    result = await this.uploadFileWithResume(file, newFileName);
+
+                }
                 if (result && result[0] === UploadStatus.Success) {
                     await this.updateUploadedSuccessFileInfo();
                     await this.updateUploadedFileCount();
@@ -775,6 +853,9 @@ export default class CloudStoragePlugin extends Plugin {
                     await this.updateSkippedFileCount()
                     return;
                 }
+                else if (result && result[0] === UploadStatus.CustomS3UploadError) {
+                    return;
+                }
 
             } catch (error) {
                 if (attempt === maxRetries) {
@@ -789,55 +870,6 @@ export default class CloudStoragePlugin extends Plugin {
             }
         }
 
-    }
-}
-
-async function initS3Client(plugin: CloudStoragePlugin) {
-    if (plugin.isCloudStorage && plugin.settings.userInfo.refresh_token && plugin.settings.userInfo.access_token) {
-        try {
-            const response = await requestUrl({
-                url: USER_MANAGER_BASE_URL + '/getStorageInfo',
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${plugin.settings.userInfo.access_token}`
-                },
-                body: JSON.stringify({ "email": plugin.settings.userInfo.email })
-            });
-
-            if (response.status === 200 && response.json.error_code === 0) {
-                const data = response.json.detail;
-
-                plugin.bucket = data.user_bucket;
-                plugin.bucket_id = data.user_bucket_id;
-                const prefix = data.secure ? "https://" : "http://";
-                plugin.s3Client_aws = new S3Client({
-                    region: "us-west-2",
-                    endpoint: prefix + data.endpoint,
-                    credentials: {
-                        accessKeyId: data.access_key,
-                        secretAccessKey: data.secret_key
-                    },
-                    forcePathStyle: true
-                });
-            } else {
-                handleResponse(response.json.detail);
-            }
-        } catch (error) {
-            console.error('Error initializing S3 client:', error);
-        }
-    }
-    else if (!plugin.isCloudStorage) {
-        plugin.s3Client_aws = new S3Client({
-            endpoint: plugin.settings.customS3Endpoint,
-            region: plugin.settings.customS3Region,
-            credentials: {
-                accessKeyId: plugin.settings.customS3AccessKey,
-                secretAccessKey: plugin.settings.customS3SecretKey
-            },
-            //forcePathStyle: true, // Needed for S3
-        });
-        plugin.bucket = plugin.settings.customS3Bucket;
     }
 }
 
@@ -1000,6 +1032,26 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                 }));
 
+        new Setting(containerEl)
+        .setName('Verify S3 Configuration')
+        .setDesc('Test the connection to your S3-compatible storage.')
+        .addButton(button => button
+            .setButtonText('Verify Configuration')
+            .setCta()
+            .onClick(async () => {
+                const loadingNotice = new Notice('Verifying S3 configuration...', 0);
+                try {
+                    const result = await this.verifyS3Configuration();
+                    loadingNotice.hide();
+                    if (result) {
+                        new Notice('S3 configuration verified successfully!');
+                    }
+                } catch (error) {
+                    loadingNotice.hide();
+                    new Notice(`Verification failed: ${error.message}`);
+                }
+            }));
+
     }
 
     private displayGeneralSettingsSection(containerEl: HTMLElement) {
@@ -1138,6 +1190,30 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                 }));
     }
+    
+
+    private async verifyS3Configuration(): Promise<boolean> {
+        this.plugin.initCustomS3Client()
+        // const abstractFile = this.app.vault.getAbstractFileByPath('Assets/testdev_accessKeys.csv');
+        // if (abstractFile instanceof TFile) {
+        //     const file: TFile = abstractFile;
+        //     return await this.plugin.customS3Client!.uploadFile(file, this.app)
+
+        // }
+        // return false;
+
+        const errors = { msg: "" };
+        const res = await this.plugin.customS3Client!.checkConnect((err: any) => {
+            errors.msg = `${err}`;
+          });
+        if (res) {
+            return true;
+        } 
+          else {
+            throw new Error('S3 verification failed');
+        }
+    }
+    
 
 
     private async resendVerificationEmail(): Promise<void> {
@@ -1188,9 +1264,9 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 .onChange(async (value) => {
                     this.plugin.settings.storageType = value as 'plugin' | 'custom';
                     await this.plugin.saveSettings();
-                    if (value === 'custom') {
-                        alert('Custom storage are not supported at the moment, coming soon.');
-                    }
+                    // if (value === 'custom') {
+                    //     alert('Custom storage are not supported at the moment, coming soon.');
+                    // }
                     this.display(); // Refresh the display to show/hide relevant settings
                 }));
 
@@ -1451,7 +1527,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 this.plugin.settings.userInfo.refresh_token = response.refresh_token;
                 await this.plugin.saveSettings();
                 this.display();
-                // initS3Client(this.plugin);
+                this.plugin.initCustomS3Client();
             }
         } catch (error) {
             console.error('Registration failed:', error);
@@ -1486,7 +1562,6 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
         this.plugin.settings.userInfo.access_token = null;
         this.plugin.settings.userInfo.refresh_token = null;
-        this.plugin.s3Client_aws = null;
         await this.plugin.saveSettings();
         this.display();
     }
