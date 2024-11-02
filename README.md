@@ -39,13 +39,13 @@ Here are some quick video demonstrations to help you get started with Cloud Stor
    - Check your email and verify your account to receive additional free storage space.
 
 2. **Configure Monitored Folders**:
-   - In the plugin settings, under "General Settings", click "Add Folder".
+   - In the plugin settings, under "Local", click "Add Folder".
    - Select or type the path of the folder you want to monitor for attachments.
    - Repeat this process for all folders you wish to include.
 
 3. **Initiate Your First Upload**:
    - Open the command palette (Ctrl/Cmd + P).
-   - Search for and select "Cloud Storage: Upload all attachments".
+   - Search for and select "Cloud Storage: Upload attachments".
    - The plugin will start uploading files from your monitored folders and updating links in your notes.
 
 4. **Verify Uploads**:
