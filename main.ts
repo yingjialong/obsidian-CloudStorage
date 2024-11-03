@@ -7,10 +7,10 @@ import { CustomS3 } from "./utils/customS3";
 // Configuration
 const PART_MAX_RETRIES = 3;
 const DEFAULT_MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
-// const LINK_BASE_URL = "https://link.obcs.top";
-// const USER_MANAGER_BASE_URL = 'https://obcs-api.obcs.top/api';
-const LINK_BASE_URL = "http://127.0.0.1:5002";
-const USER_MANAGER_BASE_URL = 'http://127.0.0.1:5001/api';
+const LINK_BASE_URL = "https://link.obcs.top";
+const USER_MANAGER_BASE_URL = 'https://obcs-api.obcs.top/api';
+// const LINK_BASE_URL = "http://127.0.0.1:5002";
+// const USER_MANAGER_BASE_URL = 'http://127.0.0.1:5001/api';
 
 interface UploadProgress {
     uploadId: string;
