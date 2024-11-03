@@ -3,6 +3,7 @@ import CryptoJS from 'crypto-js';
 import { getClient } from "customS3Client";
 import type { S3Config } from "./utils/baseTypes";
 import { CustomS3 } from "./utils/customS3";
+import {getHeaderCaseInsensitive} from "./utils/utils";
 
 // Configuration
 const PART_MAX_RETRIES = 3;
@@ -287,8 +288,7 @@ export default class CloudStoragePlugin extends Plugin {
                             throw new Error(`Failed to upload part,file:${key},partNumber:${partNumber}`);
                         }
 
-
-                        etag = uploadResponse.headers['etag'];
+                        etag = getHeaderCaseInsensitive(uploadResponse.headers, 'etag')
                         if (etag) {
                             console.debug(`Part ${partNumber} uploaded successfully. Progress: ${((end / file.stat.size) * 100).toFixed(2)}%`);
                             break;
@@ -309,7 +309,7 @@ export default class CloudStoragePlugin extends Plugin {
                 }
 
                 // Notify server of successful part upload
-                response = await this.requestNextUpload(uploadId, partNumber, etag, end);
+                response = await this.requestNextUpload(uploadId, partNumber, etag!, end);
                 if (response == null) {
                     console.error(`Failed to notify server of successful part upload,file:${key},partNumber:${partNumber}`);
                     throw new Error(`Failed to upload part ${file.name}`);
