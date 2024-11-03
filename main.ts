@@ -1,8 +1,8 @@
 import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, TFile, TFolder, setIcon, ButtonComponent, RequestUrlResponse, TAbstractFile, normalizePath, moment, getBlobArrayBuffer } from 'obsidian';
 import CryptoJS from 'crypto-js';
 import { getClient } from "customS3Client";
-import type { S3Config } from "./util/baseTypes";
-import { FakeFsS3 } from "./util/fsS3";
+import type { S3Config } from "./utils/baseTypes";
+import { CustomS3 } from "./utils/customS3";
 
 // Configuration
 const PART_MAX_RETRIES = 3;
@@ -81,7 +81,7 @@ const enum UploadStatus {
 
 export default class CloudStoragePlugin extends Plugin {
     settings: CloudStorageSettings;
-    customS3Client: FakeFsS3 | null = null;
+    customS3Client: CustomS3 | null = null;
     bucket_id: string;
     bucket: string;
     folderName: string;

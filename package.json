@@ -22,7 +22,6 @@
 	"license": "MIT",
 	"devDependencies": {
 		"@types/crypto-js": "^4.2.2",
-		"@types/mime-types": "^2.1.4",
 		"@types/node": "^16.11.6",
 		"@typescript-eslint/eslint-plugin": "5.29.0",
 		"@typescript-eslint/parser": "5.29.0",
@@ -34,17 +33,7 @@
 	},
 	"dependencies": {
 		"@aws-sdk/client-s3": "^3.627.0",
-		"@aws-sdk/lib-storage": "^3.682.0",
-		"@types/aggregate-error": "^1.0.0",
-		"@types/lodash": "^4.17.13",
-		"aggregate-error": "^5.0.0",
 		"axios": "^1.7.3",
-		"crypto-js": "^4.2.0",
-		"emoji-regex": "^10.4.0",
-		"lodash": "^4.17.21",
-		"nanoid": "^5.0.8",
-		"p-queue": "^8.0.1",
-		"rfc4648": "^1.5.3",
-		"xregexp": "^5.1.1"
+		"crypto-js": "^4.2.0"
 	}
 }
