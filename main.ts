@@ -7,10 +7,10 @@ import { FakeFsS3 } from "./util/fsS3";
 // Configuration
 const PART_MAX_RETRIES = 3;
 const DEFAULT_MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
-const LINK_BASE_URL = "https://link.obcs.top";
-const USER_MANAGER_BASE_URL = 'https://obcs-api.obcs.top/api';
-// const LINK_BASE_URL = "http://127.0.0.1:5002";
-// const USER_MANAGER_BASE_URL = 'http://127.0.0.1:5001/api';
+// const LINK_BASE_URL = "https://link.obcs.top";
+// const USER_MANAGER_BASE_URL = 'https://obcs-api.obcs.top/api';
+const LINK_BASE_URL = "http://127.0.0.1:5002";
+const USER_MANAGER_BASE_URL = 'http://127.0.0.1:5001/api';
 
 interface UploadProgress {
     uploadId: string;
@@ -131,7 +131,7 @@ export default class CloudStoragePlugin extends Plugin {
         this.countLocker = new Lock();
         this.updateLinkLocker = new Lock();
 
-        this.initCustomS3Client();
+        // this.initCustomS3Client();
 
         this.addCommand({
             id: 'upload-attachments',

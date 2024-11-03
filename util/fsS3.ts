@@ -32,7 +32,7 @@ import { VALID_REQURL } from "./baseTypesObs";
 import { bufferToArrayBuffer, getFolderLevels } from "./misc";
 
 import type { Entity } from "./baseTypes";
-import { FakeFs } from "./fsAll";
+// import { FakeFs } from "./fsAll";
 import { FileTypeUtil } from './getMimeType';
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -399,13 +399,12 @@ const fromS3HeadObjectToEntity = (
   } as Entity;
 };
 
-export class FakeFsS3 extends FakeFs {
+export class FakeFsS3{
   s3Config: S3Config;
   s3Client: S3Client;
   kind: "s3";
   synthFoldersCache: Record<string, Entity>;
   constructor(s3Config: S3Config) {
-    super();
     this.s3Config = s3Config;
     this.s3Client = getS3Client(s3Config);
     this.kind = "s3";
@@ -837,24 +836,26 @@ export class FakeFsS3 extends FakeFs {
         throw Error(`not 200 httpStatusCode`);
       }
     } catch (err: any) {
-      console.debug(err);
-      if (callbackFunc !== undefined) {
-        if (this.s3Config.s3Endpoint.contains(this.s3Config.s3BucketName)) {
-          const err2 = new AggregateError([
-            err,
-            new Error(
-              "Maybe you've included the bucket name inside the endpoint setting. Please remove the bucket name and try again."
-            ),
-          ]);
-          callbackFunc(err2);
-        } else {
-          callbackFunc(err);
-        }
-      }
+      // console.debug(err);
+      // if (callbackFunc !== undefined) {
+      //   if (this.s3Config.s3Endpoint.contains(this.s3Config.s3BucketName)) {
+      //     const err2 = new AggregateError([
+      //       err,
+      //       new Error(
+      //         "Maybe you've included the bucket name inside the endpoint setting. Please remove the bucket name and try again."
+      //       ),
+      //     ]);
+      //     callbackFunc(err2);
+      //   } else {
+      //     callbackFunc(err);
+      //   }
+      // }
       return false;
     }
+    console.info(`check connect: ok`);
+    return true;
 
-    return await this.checkConnectCommonOps(callbackFunc);
+    // return await this.checkConnectCommonOps(callbackFunc);
   }
 
   
