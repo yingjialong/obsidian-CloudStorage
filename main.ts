@@ -1,4 +1,4 @@
-import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, TFile, TFolder, setIcon, ButtonComponent, RequestUrlResponse, TAbstractFile, normalizePath, moment, getBlobArrayBuffer } from 'obsidian';
+import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, TFile, TFolder, setIcon, ButtonComponent, RequestUrlResponse, TAbstractFile, normalizePath, moment, getBlobArrayBuffer, FuzzySuggestModal } from 'obsidian';
 import CryptoJS from 'crypto-js';
 import { getClient } from "customS3Client";
 import type { S3Config } from "./utils/baseTypes";
@@ -132,13 +132,45 @@ export default class CloudStoragePlugin extends Plugin {
         this.countLocker = new Lock();
         this.updateLinkLocker = new Lock();
 
-        // this.initCustomS3Client();
+        this.initCustomS3Client();
 
         this.addCommand({
             id: 'upload-attachments',
-            name: 'Upload attachments',
+            name: 'Upload attachments from the monitored folder',
             callback: () => this.uploadAllAttachments()
         });
+
+        this.addCommand({
+            id: 'upload-attachments-in-current-file',
+            name: 'Upload attachments in current file',
+            checkCallback: (checking: boolean) => {
+                // Get the active file
+                const activeFile = this.app.workspace.getActiveFile();
+                
+                // Only enable this command when there is an active file
+                if (activeFile) {
+                    if (!checking) {
+                        this.uploadCurrentFileAttachments(activeFile);
+                    }
+                    return true;
+                }
+                return false;
+            }
+        });
+
+        // Add file menu item
+        this.registerEvent(
+            this.app.workspace.on('file-menu', (menu, file) => {
+                if (file instanceof TFile) {
+                    menu.addItem((item) => {
+                        item
+                            .setTitle('Upload attachments')
+                            .setIcon('upload-cloud')
+                            .onClick(() => this.uploadCurrentFileAttachments(file));
+                    });
+                }
+            })
+        );
 
         // Add setting tab
         this.addSettingTab(new CloudStorageSettingTab(this.app, this));
@@ -637,6 +669,57 @@ export default class CloudStoragePlugin extends Plugin {
         return updated;
     }
 
+    async uploadCurrentFileAttachments(currentFile: TFile) {
+        if (this.proccessing) {
+            new Notice("Please wait for the previous upload to finish.");
+            return;
+        }
+
+        // Preliminary Preparation for Uploading Files
+        if (!await this.preliminaryforUploading())
+        {
+            new Notice("Network Error. Please check your internet connection.");
+            return;
+        }
+
+        try {
+            // Retrieve the cache of the current file to find all embedded attachments.
+            const fileCache = this.app.metadataCache.getFileCache(currentFile);
+            const uploadPromises: Promise<void>[] = [];
+            
+            if (fileCache && fileCache.embeds) {
+                for (const embed of fileCache.embeds) {
+                    // Retrieve the file corresponding to the link.
+                    const linkedFile = this.app.metadataCache.getFirstLinkpathDest(embed.link, currentFile.path);
+                    
+                    if (linkedFile instanceof TFile && linkedFile.extension !== 'md') {
+                        // Check if the file should be processed.
+                        if (this.shouldProcessFile(linkedFile)) {
+                            const uploadPromise = this.processFile(linkedFile);
+                            uploadPromises.push(uploadPromise);
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                        } else {
+                            await this.updateSkippedFileCount();
+                            new Notice(`Skipping file ${linkedFile.path}`);
+                        }
+                    }
+                }
+            }
+
+            // Wait for all uploads to complete
+            await Promise.all(uploadPromises);
+            new Notice(`Storage completed: success ${this.uploadedSuccessFileCount}, failure ${this.uploadedErrorFileCount}, skipped ${this.skipUploadCount}`);
+        } catch (error) {
+            console.error("Error uploading attachments:", error);
+            new Notice("Error uploading attachments");
+        } finally {
+            this.statusBarItemEl.empty();
+            const iconEl = this.statusBarItemEl.createEl("span", { cls: "status-bar-item-icon" });
+            setIcon(iconEl, 'file-up');
+            this.proccessing = false;
+        }
+    }
+
     async uploadAllAttachments() {
         // if (this.settings.storageType === "custom") {
         //     new Notice("Custom storage are not supported at the moment, coming soon.");
@@ -655,34 +738,12 @@ export default class CloudStoragePlugin extends Plugin {
             return;
         }
 
-        const storageType = this.settings.storageType;
-        const response = await apiRequestByAccessToken(this, 'POST', USER_MANAGER_BASE_URL + "/get_user_simple_info", {"storageType":storageType});
-        if (response) {
-            this.userType = response.user_type;
-            this.folderName = response.folder_name;
-            this.isVerified = response.is_verified;
-        }
-        else
+        // Preliminary Preparation for Uploading Files
+        if (!await this.preliminaryforUploading())
         {
-            this.userType = "";
-            this.folderName = "";
-            this.isVerified = false;
             new Notice("Network Error. Please check your internet connection.");
             return;
         }
-
-        this.proccessing = true;
-        this.proccessNotice = null;
-
-        // Initialize upload counters
-        this.uploadingFileCount = 0; // Total number of files to be uploaded
-        this.uploadedFileCount = 0; // Number of files already uploaded
-        this.uploadedS3FileSize = 0; // Total size of files already uploaded
-        this.uploadingFileSize = 0; // Total size of files to be uploaded
-        this.uploadedErrorFileCount = 0;
-        this.uploadedSuccessFileCount = 0;
-        this.skipUploadCount = 0;
-
 
         const allFilePromises: Promise<void>[] = [];
         // Iterate through all monitored folders
@@ -716,6 +777,37 @@ export default class CloudStoragePlugin extends Plugin {
                 }
             }
         }
+    }
+
+    private async preliminaryforUploading(): Promise<boolean> {
+        const storageType = this.settings.storageType;
+        const response = await apiRequestByAccessToken(this, 'POST', USER_MANAGER_BASE_URL + "/get_user_simple_info", {"storageType":storageType});
+        if (response) {
+            this.userType = response.user_type;
+            this.folderName = response.folder_name;
+            this.isVerified = response.is_verified;
+        }
+        else
+        {
+            this.userType = "";
+            this.folderName = "";
+            this.isVerified = false;
+            return false;
+        }
+
+        this.proccessing = true;
+        this.proccessNotice = null;
+
+        // Initialize upload counters
+        this.uploadingFileCount = 0; // Total number of files to be uploaded
+        this.uploadedFileCount = 0; // Number of files already uploaded
+        this.uploadedS3FileSize = 0; // Total size of files already uploaded
+        this.uploadingFileSize = 0; // Total size of files to be uploaded
+        this.uploadedErrorFileCount = 0;
+        this.uploadedSuccessFileCount = 0;
+        this.skipUploadCount = 0;
+        
+        return true;
     }
 
     private shouldProcessFile(file: TFile): boolean {
@@ -1060,16 +1152,17 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
         new Setting(generalSection)
             .setName('Monitored Folders')
-            .setDesc('Specify folders to monitor for attachments. All attachments in these folders will be uploaded.');
+            .setDesc('Specify folders to monitor for attachments. All attachments in these folders will be uploaded.')
+            .addButton(button => button
+                .setButtonText('Add Folder')
+                .setCta()
+                .onClick(async () => {
+                    this.plugin.settings.monitoredFolders.push('');
+                    this.refreshGeneralSettings(generalSection);
+                }));
 
         this.plugin.settings.monitoredFolders.forEach((folder, index) => {
             this.createFolderSetting(generalSection, folder, index);
-        });
-
-        const addFolderButton = generalSection.createEl('button', { text: 'Add Folder' });
-        addFolderButton.addEventListener('click', () => {
-            this.plugin.settings.monitoredFolders.push('');
-            this.refreshGeneralSettings(generalSection);
         });
 
         new Setting(generalSection)
@@ -1097,8 +1190,22 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                             this.plugin.settings.customMoveFolder = value;
                             await this.plugin.saveSettings();
                         });
-                    text.inputEl.addEventListener('focus', () => {
-                        new FolderSuggest(this.app, text.inputEl);
+                    // text.inputEl.addEventListener('focus', () => {
+                    //     new FolderSuggest(this.app, text.inputEl);
+                    // });
+                    const browseButtonEl = text.inputEl.parentElement?.createEl('button', {
+                        text: 'Browse',
+                        cls: 'folder-browse-button',
+                    });
+                    
+                    browseButtonEl?.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        new FolderSuggestModal(this.app, (selectedPath) => {
+                            text.setValue(selectedPath);
+                            this.plugin.settings.customMoveFolder = selectedPath;
+                            this.plugin.saveSettings();
+                        }).open();
                     });
                 });
         }
@@ -1487,13 +1594,29 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                     });
 
-                text.inputEl.addEventListener('focus', () => {
-                    new FolderSuggest(this.app, text.inputEl);
+                // text.inputEl.addEventListener('focus', () => {
+                //     new FolderSuggest(this.app, text.inputEl);
+                // });
+
+                // Add a small browse button next to the input
+                const browseButtonEl = text.inputEl.parentElement?.createEl('button', {
+                    text: 'Browse',
+                    cls: 'folder-browse-button',
+                });
+                
+                browseButtonEl?.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    new FolderSuggestModal(this.app, (selectedPath) => {
+                        text.setValue(selectedPath);
+                        this.plugin.settings.monitoredFolders[index] = selectedPath;
+                        this.plugin.saveSettings();
+                    }).open();
                 });
             })
             .addButton(button => button
-                .setButtonText('Remove')
-                .setCta()
+                .setIcon('x') 
+                .setTooltip('Remove folder')
                 .onClick(async () => {
                     this.plugin.settings.monitoredFolders.splice(index, 1);
                     await this.plugin.saveSettings();
@@ -1601,6 +1724,45 @@ class FolderSuggest {
         inputEl.addEventListener('blur', () => {
             setTimeout(() => suggestEl.remove(), 200);
         });
+    }
+}
+
+class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
+    private onChoose: (folder: string) => void;
+
+    constructor(app: App, onChoose: (folder: string) => void) {
+        super(app);
+        this.onChoose = onChoose;
+        // Set a smaller size for the modal
+        this.setPlaceholder("Select a folder");
+    }
+
+    getItems(): TFolder[] {
+        const folderSet = new Set<TFolder>();
+    
+        const rootFolder = this.app.vault.getRoot();
+        folderSet.add(rootFolder);
+
+        this.app.vault.getAllLoadedFiles().forEach(file => {
+            if (file instanceof TFolder && file.path !== '/') {
+                folderSet.add(file);
+            }
+        });
+
+        return Array.from(folderSet).sort((a, b) => {
+
+            if (a.path === '/') return -1;
+            if (b.path === '/') return 1;
+            return a.path.localeCompare(b.path);
+        });
+    }
+
+    getItemText(folder: TFolder): string {
+        return folder.path || '/';
+    }
+
+    onChooseItem(folder: TFolder, evt: MouseEvent | KeyboardEvent): void {
+        this.onChoose(folder.path || '/');
     }
 }
 
@@ -1883,7 +2045,7 @@ async function apiRequestByAccessToken(plugin: CloudStoragePlugin, method: strin
         }
     } catch (error) {
         console.error('apiRequestByAccessToken Error:', error);
-        return null;
+        throw new Error('apiRequestByAccessToken Error: ' + error);
     }
 }
 
@@ -1922,7 +2084,7 @@ async function apiRequestByRefreshToken(plugin: CloudStoragePlugin, method: stri
         }
     } catch (error) {
         console.error('apiRequestByRefreshToken Error:', error);
-        return null;
+        throw new Error('apiRequestByRefreshToken Error: ' + error);
     }
 }
 
