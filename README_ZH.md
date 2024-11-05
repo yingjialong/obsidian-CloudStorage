@@ -23,6 +23,9 @@ Cloud Storage 是一款功能强大且用户友好的 Obsidian 插件，旨在�
 
 [![指南](https://link.obcs.top/public/3dd5c85e/1f2a1d0ea1/Pasted%20image%2020241104121710.png)](https://www.bilibili.com/video/BV1cW4ZeoExX/)
 
+
+![iShot_2024-11-06_02.08.29 (1).gif](https://link.obcs.top/public/3dd5c85e/247f4a867d/iShot_2024-11-06_02.08.29_(1)_20241105T181828_92z4.gif)
+
 ## 安装方法
 
 1. 打开 Obsidian，进入设置 > 第三方插件。

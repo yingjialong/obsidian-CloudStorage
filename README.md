@@ -23,6 +23,9 @@ Here are some quick video demonstrations to help you get started with Cloud Stor
 
 [![Guide](https://img.youtube.com/vi/Ga_N2WYFqi8/maxresdefault.jpg)](https://www.youtube.com/watch?v=Ga_N2WYFqi8)
 
+
+![iShot_2024-11-06_02.08.29 (1).gif](https://link.obcs.top/public/3dd5c85e/247f4a867d/iShot_2024-11-06_02.08.29_(1)_20241105T181828_92z4.gif)
+
 ## Installation
 
 1. Open Obsidian and navigate to Settings > Community Plugins.
