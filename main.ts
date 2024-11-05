@@ -561,8 +561,15 @@ export default class CloudStoragePlugin extends Plugin {
     /**
      * Update references in documents
      */
-    async updateFileReferencesForS3(originalName: string, fileKey: string, fileExtension: string, bucketid: string, public_code: string, private_code: string) {
-        const allMarkdownFiles = this.app.vault.getMarkdownFiles();
+    async updateFileReferencesForS3(originalName: string, fileKey: string, fileExtension: string, bucketid: string, public_code: string, private_code: string, currentPage: TFile | null = null) {
+        let allMarkdownFiles: TFile[] = [];
+        if (currentPage) {
+            allMarkdownFiles.push(currentPage);
+            console.debug(`Updating references for all markdown files in ${currentPage.path}` );
+        }
+        else {
+            allMarkdownFiles = this.app.vault.getMarkdownFiles();
+        }
         let findFlag = false;
         let updated = false;
         const safetyType = this.settings.safetyLink ? "private" : "public";
@@ -624,8 +631,15 @@ export default class CloudStoragePlugin extends Plugin {
         return updated;
     }
 
-    async updateFileReferencesSecondary(originalName: string, fileKey: string, fileExtension: string, bucketid: string, public_code: string, private_code: string) {
-        const allMarkdownFiles = this.app.vault.getMarkdownFiles();
+    async updateFileReferencesSecondary(originalName: string, fileKey: string, fileExtension: string, bucketid: string, public_code: string, private_code: string, currentPage: TFile | null = null) {
+        let allMarkdownFiles: TFile[] = [];
+        if (currentPage) {
+            allMarkdownFiles.push(currentPage);
+            console.debug(`Updating references for all markdown files2 in ${currentPage.path}` );
+        }
+        else {
+            allMarkdownFiles = this.app.vault.getMarkdownFiles();
+        }
         let updated = false;
         const safetyType = this.settings.safetyLink ? "private" : "public";
         const safetyCode = this.settings.safetyLink ? private_code : public_code;
@@ -669,7 +683,7 @@ export default class CloudStoragePlugin extends Plugin {
         return updated;
     }
 
-    async uploadCurrentFileAttachments(currentFile: TFile) {
+    async uploadCurrentFileAttachments(currentPage: TFile) {
         if (this.proccessing) {
             new Notice("Please wait for the previous upload to finish.");
             return;
@@ -684,18 +698,18 @@ export default class CloudStoragePlugin extends Plugin {
 
         try {
             // Retrieve the cache of the current file to find all embedded attachments.
-            const fileCache = this.app.metadataCache.getFileCache(currentFile);
+            const fileCache = this.app.metadataCache.getFileCache(currentPage);
             const uploadPromises: Promise<void>[] = [];
             
             if (fileCache && fileCache.embeds) {
                 for (const embed of fileCache.embeds) {
                     // Retrieve the file corresponding to the link.
-                    const linkedFile = this.app.metadataCache.getFirstLinkpathDest(embed.link, currentFile.path);
+                    const linkedFile = this.app.metadataCache.getFirstLinkpathDest(embed.link, currentPage.path);
                     
                     if (linkedFile instanceof TFile && linkedFile.extension !== 'md') {
                         // Check if the file should be processed.
                         if (this.shouldProcessFile(linkedFile)) {
-                            const uploadPromise = this.processFile(linkedFile);
+                            const uploadPromise = this.processFile(linkedFile, currentPage);
                             uploadPromises.push(uploadPromise);
                             await new Promise(resolve => setTimeout(resolve, 500));
                         } else {
@@ -893,7 +907,7 @@ export default class CloudStoragePlugin extends Plugin {
         }
     }
 
-    async processFile(file: TFile) {
+    async processFile(file: TFile, currentPage: TFile | null = null) {
         if (!this.settings.userInfo.refresh_token) {
             new Notice('Please relogin');
             return;
@@ -924,7 +938,7 @@ export default class CloudStoragePlugin extends Plugin {
                     await this.updateUploadedSuccessFileInfo();
                     await this.updateUploadedFileCount();
                     // Update references in documents
-                    const res = await this.updateFileReferencesForS3(file.name, result[1], fileExtension, result[2], result[3], result[4]);
+                    const res = await this.updateFileReferencesForS3(file.name, result[1], fileExtension, result[2], result[3], result[4], currentPage);
                     // Delete the original file after successful upload
                     if (res) {
                         await this.handleLocalFile(file);
@@ -1034,7 +1048,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
     async openPaymentPage(pay_token: string) {
         const paymentUrl = `https://pay.obcs.top?token=${pay_token}`;
-        //const paymentUrl = `http://127.0.0.1:5500/payCheckout/index.html?token=${pay_token}`;
+        // const paymentUrl = `http://127.0.0.1:5500/payCheckout/index.html?token=${pay_token}`;
         window.open(paymentUrl, '_blank');
     }
 
@@ -1210,16 +1224,16 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 });
         }
 
-        new Setting(generalSection)
-            .setName('Secure Link')
-            .setDesc('If choose to enable, only your Obsidian can open the file. Otherwise, anyone with your link can open your file without restriction.(This feature is currently disabled. )')
-            .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.safetyLink || false)
-                .setDisabled(true)
-                .onChange(async (value) => {
-                    // this.plugin.settings.safetyLink = value;
-                    // await this.plugin.saveSettings();
-                }));
+        // new Setting(generalSection)
+        //     .setName('Secure Link')
+        //     .setDesc('If choose to enable, only your Obsidian can open the file. Otherwise, anyone with your link can open your file without restriction.(This feature is currently disabled. )')
+        //     .addToggle(toggle => toggle
+        //         .setValue(this.plugin.settings.safetyLink || false)
+        //         .setDisabled(true)
+        //         .onChange(async (value) => {
+        //             // this.plugin.settings.safetyLink = value;
+        //             // await this.plugin.saveSettings();
+        //         }));
 
 
     }
