@@ -5,6 +5,7 @@ import type { S3Config } from "./utils/baseTypes";
 import { CustomS3 } from "./utils/customS3";
 import {getHeaderCaseInsensitive} from "./utils/utils";
 
+const VERSION = "1.2.21"
 // Configuration
 const PART_MAX_RETRIES = 3;
 const DEFAULT_MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
@@ -795,7 +796,7 @@ export default class CloudStoragePlugin extends Plugin {
 
     private async preliminaryforUploading(): Promise<boolean> {
         const storageType = this.settings.storageType;
-        const response = await apiRequestByAccessToken(this, 'POST', USER_MANAGER_BASE_URL + "/get_user_simple_info", {"storageType":storageType});
+        const response = await apiRequestByAccessToken(this, 'POST', USER_MANAGER_BASE_URL + "/get_user_simple_info", {"storageType":storageType,"version":VERSION});
         if (response) {
             this.userType = response.user_type;
             this.folderName = response.folder_name;
@@ -1250,7 +1251,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
         });
         upgradeButton.addEventListener('click', async () => {
             if (this.plugin.settings.userInfo.refresh_token) {
-                const pay_token = await getTempToken(this.plugin);
+                const pay_token = await getTempToken(this.plugin,"upgrade");
                 if (!pay_token) {
                     console.error("Pay token failed to obtain");
                     return;
@@ -1413,13 +1414,13 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                     .setButtonText('Manage Storage')
                     .onClick(async () => {
                         if (this.plugin.settings.userInfo.refresh_token) {
-                            const temp_token = await getTempToken(this.plugin);
+                            const temp_token = await getTempToken(this.plugin,"manage");
                             if (!temp_token) {
                                 console.error("temp token failed to obtain");
                                 return;
                             }
                             window.open(`https://files.obcs.top?token=${temp_token}`, '_blank');
-                            //window.open(`http://127.0.0.1:5500/objectsManager/index.html?token=${temp_token}`, '_blank');
+                            // window.open(`http://127.0.0.1:5500/objectsManager/index.html?token=${temp_token}`, '_blank');
                         } else {
                             new Notice('Please log in first.');
                         }
@@ -2120,14 +2121,17 @@ async function refreshAccessToken(plugin: CloudStoragePlugin) {
     }
 }
 
-async function getTempToken(plugin: CloudStoragePlugin) {
+async function getTempToken(plugin: CloudStoragePlugin, goal: string) {
     try {
         const response = await requestUrl({
             url: USER_MANAGER_BASE_URL + '/get_temp_token',
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${plugin.settings.userInfo.access_token}`
-            }
+            },
+            body: JSON.stringify({
+                "goal": goal
+            })
         });
 
         if (response.status === 200 && response.json.detail.error_code === 0) {
