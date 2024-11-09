@@ -5,7 +5,7 @@ import type { S3Config } from "./utils/baseTypes";
 import { CustomS3 } from "./utils/customS3";
 import {getHeaderCaseInsensitive} from "./utils/utils";
 
-const VERSION = "1.2.21"
+const VERSION = "1.2.22"
 // Configuration
 const PART_MAX_RETRIES = 3;
 const DEFAULT_MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
@@ -80,6 +80,20 @@ const enum UploadStatus {
     PerFileMaxLimit, // upload skipped due to per file limit
     CustomS3UploadError // error occurred when uploading to S3
 }
+
+const enum ButtonText {
+    Login = "Log in",
+    VerifyConfiguration = "Verify Configuration",
+    AddFolder = "Add Folder",
+    ManageStorage = "Manage Storage",
+    RetrieveFiles = "Retrieve Files",
+    ChangePassword = "Change Password",
+    Logout = "Logout",
+    ResendVerificationEmail = "Resend Verification Email",
+    SignUp = "Sign Up",
+    ResetPassword = "Reset Password",
+    Upgrade = "Subscribe",
+  }
 
 export default class CloudStoragePlugin extends Plugin {
     settings: CloudStorageSettings;
@@ -167,7 +181,9 @@ export default class CloudStoragePlugin extends Plugin {
                         item
                             .setTitle('Upload attachments')
                             .setIcon('upload-cloud')
-                            .onClick(() => this.uploadCurrentFileAttachments(file));
+                            .onClick(() => {
+                                this.uploadCurrentFileAttachments(file);
+                            });
                     });
                 }
             })
@@ -685,10 +701,16 @@ export default class CloudStoragePlugin extends Plugin {
     }
 
     async uploadCurrentFileAttachments(currentPage: TFile) {
+        if (!this.settings.userInfo.refresh_token) {
+            new Notice('Please log in first.');
+            return;
+        }
+        
         if (this.proccessing) {
             new Notice("Please wait for the previous upload to finish.");
             return;
         }
+        actionDone(this, 'uploadCurrentFileAttachments');
 
         // Preliminary Preparation for Uploading Files
         if (!await this.preliminaryforUploading())
@@ -736,10 +758,10 @@ export default class CloudStoragePlugin extends Plugin {
     }
 
     async uploadAllAttachments() {
-        // if (this.settings.storageType === "custom") {
-        //     new Notice("Custom storage are not supported at the moment, coming soon.");
-        //     return;
-        // }
+        if (!this.settings.userInfo.refresh_token) {
+            new Notice('Please log in first.');
+            return;
+        }
 
         if (this.proccessing) {
             new Notice("Please wait for the previous upload to finish.");
@@ -750,8 +772,14 @@ export default class CloudStoragePlugin extends Plugin {
         const monitoredFolders = this.settings.monitoredFolders; // Assume this information is stored in settings
         if (monitoredFolders.length === 0) {
             new Notice("No monitored folders found.Please add monitored folders first.");
+            actionDone(this, 'uploadAllAttachments_nomonitored');
             return;
         }
+        else {
+            actionDone(this, 'uploadAllAttachments_ok');
+        }
+
+        
 
         // Preliminary Preparation for Uploading Files
         if (!await this.preliminaryforUploading())
@@ -1010,7 +1038,10 @@ export class CloudStorageSettingTab extends PluginSettingTab {
         containerEl.empty();
         this.displayUserAccountSection(containerEl);
         this.displayGeneralSettingsSection(containerEl);
-        this.displaySubscriptionFeaturesSection(containerEl);
+        if (this.plugin.settings.userInfo.refresh_token)
+        {
+            this.displaySubscriptionFeaturesSection(containerEl);
+        }
         this.displayContactInfo(containerEl);
         this.fetchUserInfo().then(() => {
             this.updateUserAccountSection(containerEl);
@@ -1062,7 +1093,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             // Email setting always displayed
             const emailSetting = new Setting(accountSection)
                 .setName('Email')
-                .setDesc(this.plugin.settings.userInfo.email)
+                .setDesc(this.plugin.settings.userInfo.email);
             emailSetting.descEl.addClass('email-desc');
             this.displayLoggedInUI(accountSection);
         } else {
@@ -1143,10 +1174,11 @@ export class CloudStorageSettingTab extends PluginSettingTab {
         .setName('Verify S3 Configuration')
         .setDesc('Test the connection to your S3-compatible storage.')
         .addButton(button => button
-            .setButtonText('Verify Configuration')
+            .setButtonText(ButtonText.VerifyConfiguration)
             .setCta()
             .onClick(async () => {
                 const loadingNotice = new Notice('Verifying S3 configuration...', 0);
+                actionDone(this.plugin, ButtonText.VerifyConfiguration);
                 try {
                     const result = await this.verifyS3Configuration();
                     loadingNotice.hide();
@@ -1169,9 +1201,10 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             .setName('Monitored Folders')
             .setDesc('Specify folders to monitor for attachments. All attachments in these folders will be uploaded.')
             .addButton(button => button
-                .setButtonText('Add Folder')
+                .setButtonText(ButtonText.AddFolder)
                 .setCta()
                 .onClick(async () => {
+                    actionDone(this.plugin, ButtonText.AddFolder);
                     this.plugin.settings.monitoredFolders.push('');
                     this.refreshGeneralSettings(generalSection);
                 }));
@@ -1245,27 +1278,29 @@ export class CloudStorageSettingTab extends PluginSettingTab {
         new Setting(subscriptionSection).setName('Subscription').setHeading();
         const headerContainer = subscriptionSection.createEl('div', { cls: 'subscription-header' });
 
-        const upgradeButton = headerContainer.createEl('button', {
-            text: 'Upgrade',
-            cls: 'mod-cta subscription-upgrade-button'
-        });
-        upgradeButton.addEventListener('click', async () => {
-            if (this.plugin.settings.userInfo.refresh_token) {
-                const pay_token = await getTempToken(this.plugin,"upgrade");
-                if (!pay_token) {
-                    console.error("Pay token failed to obtain");
-                    return;
-                }
-                this.openPaymentPage(pay_token);
-            } else {
-                new Notice('Please log in first.');
-            }
-        });
-
         const subscriptionNote = subscriptionSection.createEl('p', {
             text: 'Note: These features are only available to subscribed members.',
             cls: 'custom-setting-item-description'
         });
+
+        new Setting(subscriptionSection)
+            .setName('Upgrade to Premium')
+            .addButton(button => button
+                .setButtonText(ButtonText.Upgrade)
+                .setCta()
+                .onClick(async () => {
+                    if (this.plugin.settings.userInfo.refresh_token) {
+                        actionDone(this.plugin, ButtonText.Upgrade);
+                        const pay_token = await getTempToken(this.plugin,"upgrade");
+                        if (!pay_token) {
+                            console.error("Pay token failed to obtain");
+                            return;
+                        }
+                        this.openPaymentPage(pay_token);
+                    } else {
+                        new Notice('Please log in first.');
+                    }
+                }));
 
         new Setting(subscriptionSection)
             .setName('File Filter Mode')
@@ -1411,8 +1446,9 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 .setName('Storage Management')
                 .setDesc('Manage your storage space and uploaded files')
                 .addButton(button => button
-                    .setButtonText('Manage Storage')
+                    .setButtonText(ButtonText.ManageStorage)
                     .onClick(async () => {
+                        actionDone(this.plugin, ButtonText.ManageStorage);
                         if (this.plugin.settings.userInfo.refresh_token) {
                             const temp_token = await getTempToken(this.plugin,"manage");
                             if (!temp_token) {
@@ -1431,9 +1467,10 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 .setName('Bulk File Retrieval')
                 .setDesc('Retrieve multiple files at once')
                 .addButton(button => button
-                    .setButtonText('Retrieve Files')
+                    .setButtonText(ButtonText.RetrieveFiles)
                     .onClick(() => {
                         // Implement bulk file retrieval logic here
+                        actionDone(this.plugin, ButtonText.RetrieveFiles);
                         new Notice('Bulk file retrieval feature is not yet implemented.');
                     }));
         }
@@ -1442,8 +1479,9 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             .setName('Change Password')
             .setDesc('Change your current password.')
             .addButton(button => button
-                .setButtonText('Change Password')
+                .setButtonText(ButtonText.ChangePassword)
                 .onClick(() => {
+                    actionDone(this.plugin, ButtonText.ChangePassword);
                     new ChangePasswordModal(this.app, this.plugin).open();
                 }));
 
@@ -1451,9 +1489,12 @@ export class CloudStorageSettingTab extends PluginSettingTab {
         new Setting(containerEl)
             .addButton(button =>
                 button
-                    .setButtonText('Logout')
+                    .setButtonText(ButtonText.Logout)
                     .setCta()
-                    .onClick(() => this.logoutUser()));
+                    .onClick(() => {
+                        actionDone(this.plugin, ButtonText.Logout);
+                        this.logoutUser();
+                    }));
     }
 
     private displayEmailVerificationStatus(containerEl: HTMLElement) {
@@ -1469,8 +1510,9 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 .setDesc('Email is not verified. Verify your email to receive an additional 512 MB of storage.')
                 .addButton(button =>
                     button
-                        .setButtonText('Resend Verification Email')
+                        .setButtonText(ButtonText.ResendVerificationEmail)
                         .onClick(async () => {
+                            actionDone(this.plugin, ButtonText.ResendVerificationEmail);
                             this.verifiedButton = button.buttonEl;
                             this.verifiedButton.disabled = true;
                             try {
@@ -1542,16 +1584,18 @@ export class CloudStorageSettingTab extends PluginSettingTab {
         new Setting(containerEl)
             .setName('Log in')
             .addButton(button => button
-                .setButtonText('Log in')
+                .setButtonText(ButtonText.Login)
                 .onClick(async () => {
+                    // actionDone(this.plugin, ButtonText.Login);
                     await this.loginUser(this.plugin.settings.userInfo.email, this.tempPassword);
                 }));
 
         new Setting(containerEl)
             .setName('Sign up')
             .addButton(button => button
-                .setButtonText('Sign up')
+                .setButtonText(ButtonText.SignUp)
                 .onClick(async () => {
+                    // actionDone(this.plugin, ButtonText.SignUp);
                     this.registerButton = button.buttonEl;
                     this.registerButton.disabled = true;
                     try {
@@ -1569,8 +1613,9 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             .setName('Forgot Password')
             .setDesc('Reset your password if you have forgotten it.')
             .addButton(button => button
-                .setButtonText('Reset Password')
+                .setButtonText(ButtonText.ResetPassword)
                 .onClick(async () => {
+                    // actionDone(this.plugin, ButtonText.ResetPassword);
                     this.resetPasswordButton = button.buttonEl;
                     this.resetPasswordButton.disabled = true;
                     try {
@@ -1919,9 +1964,12 @@ class ChangePasswordModal extends Modal {
 
         new Setting(contentEl)
             .addButton(button => button
-                .setButtonText('Change Password')
+                .setButtonText(ButtonText.ChangePassword)
                 .setCta()
-                .onClick(() => this.changePassword()));
+                .onClick(() => {
+                    actionDone(this.plugin, ButtonText.ChangePassword);
+                    this.changePassword();
+                }));
     }
 
     async changePassword() {
@@ -2144,4 +2192,22 @@ async function getTempToken(plugin: CloudStoragePlugin, goal: string) {
         return null;
 
     }
+}
+
+async function actionDone(plugin: CloudStoragePlugin, action: string) {
+    try {
+        const response = await requestUrl({
+            url: USER_MANAGER_BASE_URL + '/action_done',
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${plugin.settings.userInfo.access_token}`
+            },
+            body: JSON.stringify({
+                "action": action
+            })
+        });
+    } catch (error) {
+        return null;
+    }
+    return null;
 }
