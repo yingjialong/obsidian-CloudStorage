@@ -5,7 +5,7 @@ import type { S3Config } from "./utils/baseTypes";
 import { CustomS3 } from "./utils/customS3";
 import {getHeaderCaseInsensitive} from "./utils/utils";
 
-const VERSION = "1.2.23"
+const VERSION = "1.3.23"
 // Configuration
 const PART_MAX_RETRIES = 3;
 const DEFAULT_MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
