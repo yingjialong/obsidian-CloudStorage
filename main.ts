@@ -5,10 +5,11 @@ import type { S3Config } from "./utils/baseTypes";
 import { CustomS3 } from "./utils/customS3";
 import {getHeaderCaseInsensitive} from "./utils/utils";
 
-const VERSION = "1.2.22"
+const VERSION = "1.2.23"
 // Configuration
 const PART_MAX_RETRIES = 3;
 const DEFAULT_MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
+const DEFAULT_MAX_UPLOAD_SIZE_AUTO = 20;
 const LINK_BASE_URL = "https://link.obcs.top";
 const USER_MANAGER_BASE_URL = 'https://obcs-api.obcs.top/api';
 // const LINK_BASE_URL = "http://127.0.0.1:5002";
@@ -47,6 +48,8 @@ interface CloudStorageSettings {
     localFileHandling: 'move' | 'recycle';
     customMoveFolder: string;
     safetyLink: boolean;
+    autoUpload: boolean;
+    autoMaxFileSize: number;
 
 }
 
@@ -71,7 +74,9 @@ const DEFAULT_SETTINGS: CloudStorageSettings = {
     customS3BaseUrl: "",
     localFileHandling: 'recycle',
     customMoveFolder: 'Uploaded_Attachments',
-    safetyLink: false
+    safetyLink: false,
+    autoUpload: true,
+    autoMaxFileSize: DEFAULT_MAX_UPLOAD_SIZE_AUTO
 };
 
 const enum UploadStatus {
@@ -104,6 +109,7 @@ export default class CloudStoragePlugin extends Plugin {
     isCloudStorage: boolean = false;
     statusBarItemEl: HTMLElement;
     skipUploadCount: number = 0; // Number of files skipped
+    uploadingFiles: Set<string> = new Set();
     uploadingFileCount: number = 0; // Total number of files to be uploaded
     uploadedFileCount: number = 0; // Number of files already uploaded
     uploadedErrorFileCount: number = 0; // Number of files that failed to upload
@@ -123,6 +129,7 @@ export default class CloudStoragePlugin extends Plugin {
     customMoveFolder: string;
     private originalWindowOpen: typeof window.open;
     private editorPlugin: any = null;
+    autoUploadRemind: boolean = true;
 
     initCustomS3Client() {
         if(this.settings.storageType === "custom"){
@@ -185,6 +192,26 @@ export default class CloudStoragePlugin extends Plugin {
                                 this.uploadCurrentFileAttachments(file);
                             });
                     });
+                }
+            })
+        );
+
+        this.registerEvent(
+            this.app.vault.on('modify', async (file) => {
+                if (!this.settings.autoUpload) return;
+                
+                if (file instanceof TFile && file.extension === 'md') {
+                    await this.handleNewAttachments(file);
+                }
+            })
+        );
+
+        this.registerEvent(
+            this.app.vault.on('create', async (file) => {
+                if (!this.settings.autoUpload) return;
+                
+                if (file instanceof TFile && file.extension === 'md') {
+                    await this.handleNewAttachments(file);
                 }
             })
         );
@@ -700,6 +727,80 @@ export default class CloudStoragePlugin extends Plugin {
         return updated;
     }
 
+    async handleNewAttachments(currentPage: TFile) {
+        if (!this.settings.userInfo.refresh_token)
+        {
+            if  (this.autoUploadRemind) 
+            {
+                new Notice('Please log in first.');
+                this.autoUploadRemind = false;
+            }
+            return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        try {
+            // Retrieve the cache of the current file to find all embedded attachments.
+            const fileCache = this.app.metadataCache.getFileCache(currentPage);
+
+            if (fileCache && fileCache.embeds) {
+                actionDone(this, 'handleNewAttachments');
+                // Preliminary Preparation for Uploading Files
+                if (!await this.preliminaryforUploading())
+                {
+                    if  (this.autoUploadRemind) 
+                    {
+                        new Notice("Network Error. Please check your internet connection.");
+                        this.autoUploadRemind = false;
+                    }
+                    return;
+                }
+
+                const attachmentsToUpload = fileCache.embeds.filter(embed => {
+                    const linkedFile = this.app.metadataCache.getFirstLinkpathDest(embed.link, currentPage.path);
+                    if (!(linkedFile instanceof TFile) || (linkedFile.extension == 'md')) return false;
+                    if (!this.shouldProcessFile(linkedFile)) {
+                        if  (this.autoUploadRemind) 
+                        {
+                            new Notice(`Skipping file ${linkedFile.path},Please check your file size or other settings.`);
+                            this.autoUploadRemind = false;
+                        }
+                        
+                        return false;
+                    }
+                    if (this.uploadingFiles.has(linkedFile.path)) return false;
+                    if (linkedFile.stat.size > this.settings.autoMaxFileSize * 1024 * 1024) {
+                        if  (this.autoUploadRemind) 
+                        {
+                            new Notice(`Skipping file ${linkedFile.path},Please check your file size or other settings.`);
+                            this.autoUploadRemind = false;
+                        }
+                        return false;
+                    }
+                    return true;
+                });
+
+                const uploadPromises = attachmentsToUpload.map(async embed => {
+                    const linkedFile = this.app.metadataCache.getFirstLinkpathDest(embed.link, currentPage.path);
+                    if (linkedFile instanceof TFile  && linkedFile.extension !== 'md') {
+                        try {
+                            this.uploadingFiles.add(linkedFile.path);
+                            await this.processFile(linkedFile, currentPage);
+                        } catch (error) {
+                            console.error(`Failed to upload ${linkedFile.path}:`, error);
+                            // new Notice(`Failed to upload ${linkedFile.name}`);
+                        } finally {
+                            new Notice(`Uploaded Successfully: ${linkedFile.name}`);
+                            this.uploadingFiles.delete(linkedFile.path);
+                        }
+                    }
+                });
+            }
+        } catch (error) {
+            console.error("Error uploading attachments:", error);
+            // new Notice("Error uploading attachments");
+        }
+    }
+
     async uploadCurrentFileAttachments(currentPage: TFile) {
         if (!this.settings.userInfo.refresh_token) {
             new Notice('Please log in first.');
@@ -737,7 +838,7 @@ export default class CloudStoragePlugin extends Plugin {
                             await new Promise(resolve => setTimeout(resolve, 500));
                         } else {
                             await this.updateSkippedFileCount();
-                            new Notice(`Skipping file ${linkedFile.path}`);
+                            new Notice(`Skipping file ${linkedFile.path},Please check your file size or other settings.`);
                         }
                     }
                 }
@@ -816,7 +917,7 @@ export default class CloudStoragePlugin extends Plugin {
                 }
                 else {
                     await this.updateSkippedFileCount()
-                    new Notice(`Skipping file ${file.path}`);
+                    new Notice(`Skipping file ${file.path},Please check your file size or other settings.`);
                 }
             }
         }
@@ -1214,6 +1315,28 @@ export class CloudStorageSettingTab extends PluginSettingTab {
         });
 
         new Setting(generalSection)
+            .setName('Auto Upload Attachment')
+            .setDesc('If turned off, you can manually upload attachments with one click through the command panel by "Cloud Storage: Upload attachments from the monitored folder" or "Cloud Storage： Upload attachments in current file".')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.autoUpload)
+                .onChange(async (value) => {
+                    this.plugin.settings.autoUpload = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(generalSection)
+        .setName('Maximum File Size For Automatic Uploads (MB)')
+        .setDesc('Set the maximum file size for uploads. Files larger than this will be ignored.Maximum file size upload for non-members is 5MB')
+        .addText(text => text
+            .setPlaceholder('20')
+            .setValue(this.plugin.settings.autoMaxFileSize.toString() || '20')
+            .onChange(async (value) => {
+                const size = parseInt(value);
+                this.plugin.settings.autoMaxFileSize = isNaN(size) ? 20 : size;
+                await this.plugin.saveSettings();
+            }));
+
+        new Setting(generalSection)
             .setName('Local File Handling After Upload')
             .setDesc('Choose how to handle local attachments after they are successfully uploaded to the cloud.')
             .addDropdown(dropdown => dropdown
@@ -1327,9 +1450,9 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
         new Setting(subscriptionSection)
             .setName('Maximum File Size (MB)')
-            .setDesc('Set the maximum file size for uploads. Files larger than this will be ignored.')
+            .setDesc('Set the maximum file size for uploads. Files larger than this will be ignored.Maximum file size upload for non-members is 5MB')
             .addText(text => text
-                .setPlaceholder('Enter max file size in MB')
+                .setPlaceholder('5')
                 .setValue(this.plugin.settings.maxFileSize?.toString() || '')
                 .onChange(async (value) => {
                     const size = parseInt(value);
