@@ -5,7 +5,7 @@ import type { S3Config } from "./utils/baseTypes";
 import { CustomS3 } from "./utils/customS3";
 import {getHeaderCaseInsensitive} from "./utils/utils";
 
-const VERSION = "1.3.24"
+const VERSION = "1.3.25"
 // Configuration
 const PART_MAX_RETRIES = 3;
 const DEFAULT_MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
@@ -50,6 +50,7 @@ interface CloudStorageSettings {
     safetyLink: boolean;
     autoUpload: boolean;
     autoMaxFileSize: number;
+    noticeFlag: boolean;
 
 }
 
@@ -76,7 +77,8 @@ const DEFAULT_SETTINGS: CloudStorageSettings = {
     customMoveFolder: 'Uploaded_Attachments',
     safetyLink: false,
     autoUpload: true,
-    autoMaxFileSize: DEFAULT_MAX_UPLOAD_SIZE_AUTO
+    autoMaxFileSize: DEFAULT_MAX_UPLOAD_SIZE_AUTO,
+    noticeFlag: false
 };
 
 const enum UploadStatus {
@@ -111,7 +113,6 @@ export default class CloudStoragePlugin extends Plugin {
     skipUploadCount: number = 0; // Number of files skipped
     uploadingFiles: Set<string> = new Set();
     uploadingFileCount: number = 0; // Total number of files to be uploaded
-    uploadedFileCount: number = 0; // Number of files already uploaded
     uploadedErrorFileCount: number = 0; // Number of files that failed to upload
     uploadedSuccessFileCount: number = 0; // Number of files successfully uploaded
     uploadedS3FileSize: number = 0; // Total size of files already uploaded to S3
@@ -119,6 +120,7 @@ export default class CloudStoragePlugin extends Plugin {
     private timer: NodeJS.Timeout | null = null;
     countLocker: Lock;
     updateLinkLocker: Lock;
+    fileUploadLocker: NonBlockingLock;
     private uploadProgress: Record<string, UploadProgress> = {};
     platformId: string;
     proccessing: boolean = false;
@@ -153,6 +155,7 @@ export default class CloudStoragePlugin extends Plugin {
 
         this.countLocker = new Lock();
         this.updateLinkLocker = new Lock();
+        this.fileUploadLocker = new NonBlockingLock();
 
         this.initCustomS3Client();
 
@@ -470,7 +473,7 @@ export default class CloudStoragePlugin extends Plugin {
         const fileSize = fileBlob.size;
         let notice: Notice | null = null;
         if (fileSize > chunkSize * 3) {
-            notice = new Notice(`Calculating MD5 for ${file.name}`, 0);
+            notice = popNotice(true,`Calculating MD5 for ${file.name}`, 0)
         }
 
         for (let offset = 0; offset < fileSize; offset += chunkSize) {
@@ -562,31 +565,26 @@ export default class CloudStoragePlugin extends Plugin {
         }
     }
 
-    async updateUploadedFileCount() {
-        await this.countLocker.acquire()
-        try {
-            this.uploadedFileCount++;
-            await this.updateStatusBar();
-        }
-        finally {
-            this.countLocker.release();
-        }
-    }
-
     async updateStatusBar() {
         this.statusBarItemEl.empty(); // Clear existing content
         const iconEl = this.statusBarItemEl.createEl("span", { cls: "status-bar-item-icon" });
         setIcon(iconEl, 'file-up');
         if (this.proccessing) {
+            const uploadedFileCount = this.uploadedSuccessFileCount + this.uploadedErrorFileCount + this.skipUploadCount;
             // Calculate upload progress percentage, floor it
             let percent = Math.floor(this.uploadedS3FileSize / this.uploadingFileSize * 100);
-            if (this.uploadingFileCount === this.uploadedFileCount || percent > 100) percent = 100;
+            if (this.uploadingFileCount === uploadedFileCount || percent > 100) 
+            {
+                percent = 100;
+                this.proccessNotice?.hide();
+                // popNotice(this.settings.noticeFlag, `Uploading ${this.uploadedSuccessFileCount} of ${this.uploadingFileCount} files... [${percent}% done][${this.skipUploadCount} files skipped]`)
+            }
             const textEl = this.statusBarItemEl.createEl("span", { cls: "status-bar-item-segment", text: `Uploading ${percent}%` });
             if (this.proccessNotice) {
-                this.proccessNotice.setMessage(`Uploading ${this.uploadedFileCount} of ${this.uploadingFileCount} files... [${percent}% done][${this.skipUploadCount} files skipped]`);
+                this.proccessNotice.setMessage(`Uploading ${this.uploadedSuccessFileCount} of ${this.uploadingFileCount} files... [${percent}% done][${this.skipUploadCount} files skipped]`);
             } // Uploading [x] of [y] files... ([z]% done)
-            else {
-                this.proccessNotice = new Notice(`Uploading ${this.uploadedFileCount} of ${this.uploadingFileCount} files... [${percent}% done][${this.skipUploadCount} files skipped]`, 0);
+            else if (this.uploadingFileCount != uploadedFileCount){
+                this.proccessNotice = popNotice(this.settings.noticeFlag, `Uploading ${this.uploadedSuccessFileCount} of ${this.uploadingFileCount} files... [${percent}% done][${this.skipUploadCount} files skipped]`, 0)
             }
         }
     }
@@ -740,24 +738,40 @@ export default class CloudStoragePlugin extends Plugin {
         {
             if  (this.autoUploadRemind) 
             {
-                new Notice('Please log in first.');
+                popNotice(true,'Please log in first.');
                 this.autoUploadRemind = false;
             }
             return;
         }
+        if (this.proccessing) {
+            // popNotice(true,'Please wait for the previous upload to finish.');
+            return;
+        }
+
         await new Promise(resolve => setTimeout(resolve, 1000));
-        try {
+        
             // Retrieve the cache of the current file to find all embedded attachments.
             const fileCache = this.app.metadataCache.getFileCache(currentPage);
 
-            if (fileCache && fileCache.embeds) {
+        if (fileCache && fileCache.embeds) {
+            if (this.fileUploadLocker.acquire())
+            {
+                this.proccessing = true;
+            }
+            else
+            {
+                // popNotice(true,'Please wait for the previous upload to finish.');
+                return;
+            }
+            
+            try {
                 actionDone(this, 'handleNewAttachments');
                 // Preliminary Preparation for Uploading Files
                 if (!await this.preliminaryforUploading())
                 {
                     if  (this.autoUploadRemind) 
                     {
-                        new Notice("Network Error. Please check your internet connection.");
+                        popNotice(true,"Network Error. Please check your internet connection.");
                         this.autoUploadRemind = false;
                     }
                     return;
@@ -769,7 +783,7 @@ export default class CloudStoragePlugin extends Plugin {
                     if (!this.shouldProcessFile(linkedFile)) {
                         if  (this.autoUploadRemind) 
                         {
-                            new Notice(`Skipping file ${linkedFile.path},Please check your file size or other settings.`);
+                            popNotice(true,`Skipping file ${linkedFile.path},Please check your file size or other settings.`);
                             this.autoUploadRemind = false;
                         }
                         
@@ -779,7 +793,7 @@ export default class CloudStoragePlugin extends Plugin {
                     if (linkedFile.stat.size > this.settings.autoMaxFileSize * 1024 * 1024) {
                         if  (this.autoUploadRemind) 
                         {
-                            new Notice(`Skipping file ${linkedFile.path},Please check your file size or other settings.`);
+                            popNotice(true,`Skipping file ${linkedFile.path},Please check your file size or other settings.`);
                             this.autoUploadRemind = false;
                         }
                         return false;
@@ -795,42 +809,59 @@ export default class CloudStoragePlugin extends Plugin {
                             await this.processFile(linkedFile, currentPage);
                         } catch (error) {
                             console.error(`Failed to upload ${linkedFile.path}:`, error);
-                            // new Notice(`Failed to upload ${linkedFile.name}`);
+                            // popNotice(this.settings.noticeFlag,`Failed to upload ${linkedFile.name}`)
                         } finally {
-                            // new Notice(`Uploaded Successfully: ${linkedFile.name}`);
                             this.uploadingFiles.delete(linkedFile.path);
                         }
                     }
                 });
+
+                await Promise.all(uploadPromises);
+                // popNotice(this.settings.noticeFlag,`Storage completed: success ${this.uploadedSuccessFileCount}, failure ${this.uploadedErrorFileCount}, skipped ${this.skipUploadCount}`)
+            } catch (error) {
+                console.error("Error uploading attachments:", error);
+            }finally {
+                await this.updateStatusBar();
+                this.statusBarItemEl.empty();
+                const iconEl = this.statusBarItemEl.createEl("span", { cls: "status-bar-item-icon" });
+                setIcon(iconEl, 'file-up');
+                this.fileUploadLocker.release();
+                this.proccessing = false;
             }
-        } catch (error) {
-            console.error("Error uploading attachments:", error);
-            // new Notice("Error uploading attachments");
-        }finally {
-            this.proccessing = false;
         }
+        
     }
 
     async uploadCurrentFileAttachments(currentPage: TFile) {
         if (!this.settings.userInfo.refresh_token) {
-            new Notice('Please log in first.');
+            popNotice(true,'Please log in first.');
             return;
         }
         
         if (this.proccessing) {
-            new Notice("Please wait for the previous upload to finish.");
+            popNotice(true,'Please wait for the previous upload to finish.');
             return;
         }
-        actionDone(this, 'uploadCurrentFileAttachments');
-
-        // Preliminary Preparation for Uploading Files
-        if (!await this.preliminaryforUploading())
+        if (this.fileUploadLocker.acquire())
         {
-            new Notice("Network Error. Please check your internet connection.");
+            this.proccessing = true;
+        }
+        else
+        {
+            popNotice(true,'Please wait for the previous upload to finish.');
             return;
         }
 
         try {
+            actionDone(this, 'uploadCurrentFileAttachments');
+
+            // Preliminary Preparation for Uploading Files
+            if (!await this.preliminaryforUploading())
+            {
+                popNotice(true,"Network Error. Please check your internet connection.");
+                return;
+            }
+
             // Retrieve the cache of the current file to find all embedded attachments.
             const fileCache = this.app.metadataCache.getFileCache(currentPage);
             const uploadPromises: Promise<void>[] = [];
@@ -848,7 +879,7 @@ export default class CloudStoragePlugin extends Plugin {
                             await new Promise(resolve => setTimeout(resolve, 500));
                         } else {
                             await this.updateSkippedFileCount();
-                            new Notice(`Skipping file ${linkedFile.path},Please check your file size or other settings.`);
+                            popNotice(this.settings.noticeFlag,`Skipping file ${linkedFile.path},Please check your file size or other settings.`)
                         }
                     }
                 }
@@ -856,64 +887,78 @@ export default class CloudStoragePlugin extends Plugin {
 
             // Wait for all uploads to complete
             await Promise.all(uploadPromises);
-            new Notice(`Storage completed: success ${this.uploadedSuccessFileCount}, failure ${this.uploadedErrorFileCount}, skipped ${this.skipUploadCount}`);
+            popNotice(true,`Storage completed: success ${this.uploadedSuccessFileCount}, failure ${this.uploadedErrorFileCount}, skipped ${this.skipUploadCount}`)
         } catch (error) {
             console.error("Error uploading attachments:", error);
-            new Notice("Error uploading attachments");
         } finally {
+            await this.updateStatusBar();
             this.statusBarItemEl.empty();
             const iconEl = this.statusBarItemEl.createEl("span", { cls: "status-bar-item-icon" });
             setIcon(iconEl, 'file-up');
+            this.fileUploadLocker.release();
             this.proccessing = false;
         }
     }
 
     async uploadAllAttachments() {
         if (!this.settings.userInfo.refresh_token) {
-            new Notice('Please log in first.');
+            popNotice(true,'Please log in first.');
             return;
         }
 
         if (this.proccessing) {
-            new Notice("Please wait for the previous upload to finish.");
+            popNotice(true,'Please wait for the previous upload to finish.');
             return;
         }
 
         // Get "Monitored Folders" from plugin settings
         const monitoredFolders = this.settings.monitoredFolders; // Assume this information is stored in settings
         if (monitoredFolders.length === 0) {
-            new Notice("No monitored folders found.Please add monitored folders first.");
+            popNotice(true,'No monitored folders found.Please add monitored folders first.');
             actionDone(this, 'uploadAllAttachments_nomonitored');
             return;
         }
-        else {
-            actionDone(this, 'uploadAllAttachments_ok');
-        }
-
         
-
-        // Preliminary Preparation for Uploading Files
-        if (!await this.preliminaryforUploading())
+        if (this.fileUploadLocker.acquire())
         {
-            new Notice("Network Error. Please check your internet connection.");
+            this.proccessing = true;
+        }
+        else
+        {
+            popNotice(true,'Please wait for the previous upload to finish.');
             return;
         }
 
-        const allFilePromises: Promise<void>[] = [];
-        // Iterate through all monitored folders
-        for (const folderPath of monitoredFolders) {
-            const folder = this.app.vault.getAbstractFileByPath(folderPath);
-            console.info(`Scanning folder: ${folderPath}`);
-            if (folder instanceof TFolder) {
-                await this.scanFolder(folder, allFilePromises);
+        try{
+            actionDone(this, 'uploadAllAttachments_ok');
+            // Preliminary Preparation for Uploading Files
+            if (!await this.preliminaryforUploading())
+            {
+                popNotice(true,"Network Error. Please check your internet connection.");
+                return;
             }
+
+            const allFilePromises: Promise<void>[] = [];
+            // Iterate through all monitored folders
+            for (const folderPath of monitoredFolders) {
+                const folder = this.app.vault.getAbstractFileByPath(folderPath);
+                console.info(`Scanning folder: ${folderPath}`);
+                if (folder instanceof TFolder) {
+                    await this.scanFolder(folder, allFilePromises);
+                }
+            }
+            await Promise.all(allFilePromises);
+            popNotice(true,`Storage completed: success ${this.uploadedSuccessFileCount}, failure ${this.uploadedErrorFileCount}, skipped ${this.skipUploadCount}`)
         }
-        await Promise.all(allFilePromises);
-        new Notice(`Storage completed: success ${this.uploadedSuccessFileCount}, failure ${this.uploadedErrorFileCount}, skipped ${this.skipUploadCount}`);
-        this.statusBarItemEl.empty();
-        const iconEl = this.statusBarItemEl.createEl("span", { cls: "status-bar-item-icon" });
-        setIcon(iconEl, 'file-up');
-        this.proccessing = false;
+        finally {
+            await this.updateStatusBar();
+            this.statusBarItemEl.empty();
+            const iconEl = this.statusBarItemEl.createEl("span", { cls: "status-bar-item-icon" });
+            setIcon(iconEl, 'file-up');
+            this.fileUploadLocker.release();
+            this.proccessing = false;
+        }
+        
     }
 
     async scanFolder(folder: TFolder, allFilePromises: Promise<void>[]) {
@@ -927,7 +972,7 @@ export default class CloudStoragePlugin extends Plugin {
                 }
                 else {
                     await this.updateSkippedFileCount()
-                    new Notice(`Skipping file ${file.path},Please check your file size or other settings.`);
+                    popNotice(this.settings.noticeFlag,`Skipping file ${file.path},Please check your file size or other settings.`)
                 }
             }
         }
@@ -949,12 +994,10 @@ export default class CloudStoragePlugin extends Plugin {
             return false;
         }
 
-        this.proccessing = true;
         this.proccessNotice = null;
 
         // Initialize upload counters
         this.uploadingFileCount = 0; // Total number of files to be uploaded
-        this.uploadedFileCount = 0; // Number of files already uploaded
         this.uploadedS3FileSize = 0; // Total size of files already uploaded
         this.uploadingFileSize = 0; // Total size of files to be uploaded
         this.uploadedErrorFileCount = 0;
@@ -1049,7 +1092,7 @@ export default class CloudStoragePlugin extends Plugin {
 
     async processFile(file: TFile, currentPage: TFile | null = null) {
         if (!this.settings.userInfo.refresh_token) {
-            new Notice('Please relogin');
+            popNotice(true, 'Please relogin');
             return;
         }
 
@@ -1076,7 +1119,6 @@ export default class CloudStoragePlugin extends Plugin {
                 }
                 if (result && result[0] === UploadStatus.Success) {
                     await this.updateUploadedSuccessFileInfo();
-                    await this.updateUploadedFileCount();
                     // Update references in documents
                     const res = await this.updateFileReferencesForS3(file.name, result[1], fileExtension, result[2], result[3], result[4], currentPage);
                     // Delete the original file after successful upload
@@ -1100,18 +1142,19 @@ export default class CloudStoragePlugin extends Plugin {
                     return;
                 }
                 else if (result && result[0] === UploadStatus.CustomS3UploadError) {
+                    await this.updateUploadedErrorFileInfo();
                     throw new Error('custom s3 upload error');
                 }
 
             } catch (error) {
                 if (attempt === maxRetries) {
                     console.error(`Failed to upload ${file.name} to S3 after ${maxRetries} attempts: ${error.message}`);
-                    new Notice(`Failed to upload ${file.name} to S3 after ${maxRetries} attempts: ${error.message}`);
+                    popNotice(this.settings.noticeFlag,`Failed to upload ${file.name} to S3 after ${maxRetries} attempts: ${error.message}`)
                     await this.updateUploadedErrorFileInfo();
                     throw error;
                 } else {
                     console.warn(`Attempt ${attempt} to upload ${file.name} failed. Retrying in ${retryDelay * attempt / 1000}s...`, 10);
-                    new Notice(`${file.name} retring...`);
+                    popNotice(this.settings.noticeFlag,`${file.name} retring...`)
                     await new Promise(res => setTimeout(res, retryDelay * attempt));
                 }
             }
@@ -1175,7 +1218,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 }
             } catch (error) {
                 console.error('Failed to fetch user info:', error);
-                new Notice('Failed to fetch user information. Please try again later.');
+                popNotice(true, 'Failed to fetch user information. Please try again later.');
             }
         }
     }
@@ -1289,17 +1332,17 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             .setButtonText(ButtonText.VerifyConfiguration)
             .setCta()
             .onClick(async () => {
-                const loadingNotice = new Notice('Verifying S3 configuration...', 0);
+                const loadingNotice = popNotice(true, 'Verifying S3 configuration...', 0);
                 actionDone(this.plugin, ButtonText.VerifyConfiguration);
                 try {
                     const result = await this.verifyS3Configuration();
-                    loadingNotice.hide();
+                    loadingNotice?.hide();
                     if (result) {
-                        new Notice('S3 configuration verified successfully!');
+                        popNotice(true, 'S3 configuration verified successfully!');
                     }
                 } catch (error) {
-                    loadingNotice.hide();
-                    new Notice(`Verification failed: ${error.message}`);
+                    loadingNotice?.hide();
+                    popNotice(true, `Verification failed: ${error.message}`);
                 }
             }));
 
@@ -1344,6 +1387,16 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             .onChange(async (value) => {
                 const size = parseInt(value);
                 this.plugin.settings.autoMaxFileSize = isNaN(size) ? 20 : size;
+                await this.plugin.saveSettings();
+            }));
+
+        new Setting(generalSection)
+        .setName('More Detailed Notifications')
+        .setDesc('If too many notices are affecting the experience, they can be turned off')
+        .addToggle(toggle => toggle
+            .setValue(this.plugin.settings.noticeFlag)
+            .onChange(async (value) => {
+                this.plugin.settings.noticeFlag = value;
                 await this.plugin.saveSettings();
             }));
 
@@ -1432,7 +1485,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                         }
                         this.openPaymentPage(pay_token);
                     } else {
-                        new Notice('Please log in first.');
+                        popNotice(true, 'Please log in first.');
                     }
                 }));
 
@@ -1511,13 +1564,13 @@ export class CloudStorageSettingTab extends PluginSettingTab {
         try {
             const response = await apiRequestByAccessToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + '/resend_verification', {});
             if (response) {
-                new Notice('Verification email sent. Please check your inbox.');
+                popNotice(true, 'Verification email sent. Please check your inbox.');
             } else {
                 throw new Error('Failed to send verification email');
             }
         } catch (error) {
             console.error('Failed to resend verification email:', error);
-            new Notice('Failed to send verification email. Please try again later.');
+            popNotice(true, 'Failed to send verification email. Please try again later.');
         }
     }
 
@@ -1592,7 +1645,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                             window.open(`https://files.obcs.top?token=${temp_token}`, '_blank');
                             // window.open(`http://127.0.0.1:5500/objectsManager/index.html?token=${temp_token}`, '_blank');
                         } else {
-                            new Notice('Please log in first.');
+                            popNotice(true, 'Please log in first.');
                         }
                     }));
 
@@ -1605,7 +1658,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                     .onClick(() => {
                         // Implement bulk file retrieval logic here
                         actionDone(this.plugin, ButtonText.RetrieveFiles);
-                        new Notice('Bulk file retrieval feature is not yet implemented.');
+                        popNotice(true, 'Bulk file retrieval feature is not yet implemented.');
                     }));
         }
 
@@ -1667,11 +1720,11 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             //     .setIcon('refresh-cw')
             //     .setTooltip('Refresh storage usage')
             //     .onClick(async () => {
-            //         new Notice('Refreshing storage usage...');
+            //         popNotice(true, 'Refreshing storage usage...');
             //         const res = await this.refreshStorageUsage();
             //         if (res) {
             //             storageUsageSetting.setDesc(`${this.formatSize(this.userInfo.storageUsed)} / ${this.formatSize(this.userInfo.storageLimit)} used. ⚠️ Bucket storage sizes are computed once per day.`);
-            //             new Notice('Storage usage refreshed.');
+            //             popNotice(true, 'Storage usage refreshed.');
             //         }
             //     })
             // )
@@ -1690,7 +1743,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             }
         } catch (error) {
             console.error('Failed to refresh storage usage:', error);
-            new Notice('Failed to refresh storage usage. Please try again later.');
+            popNotice(true, 'Failed to refresh storage usage. Please try again later.');
             return false;
         }
     }
@@ -1738,7 +1791,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                             await this.registerUser(this.plugin.settings.userInfo.email, this.tempPassword, result);
                         }
                     } catch (error) {
-                        new Notice('Registration failed');
+                        popNotice(true, 'Registration failed');
                     } finally {
                         this.registerButton.disabled = false;
                     }
@@ -1754,7 +1807,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                     this.resetPasswordButton.disabled = true;
                     try {
                         if (!this.plugin.settings.userInfo.email) {
-                            new Notice('Please enter your email address first.');
+                            popNotice(true, 'Please enter your email address first.');
                             return;
                         }
                         await this.resetPassword(this.plugin.settings.userInfo.email);
@@ -1769,11 +1822,11 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             const response = await apiRequestByAccessToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + '/send_reset_mail', { email });
 
             if (response) {
-                new Notice('Password reset email has been sent. Please check your inbox.');
+                popNotice(true, 'Password reset email has been sent. Please check your inbox.');
             }
         } catch (error) {
             console.error('Password reset failed:', error);
-            new Notice('Password reset failed. Please try again later.');
+            popNotice(true, 'Password reset failed. Please try again later.');
         }
     }
 
@@ -1831,7 +1884,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
     private async registerUser(email: string, password: string, region: string) {
         if (!validateEmail(email) || !validatePassword(password)) {
-            new Notice('Email or password is not compliant.');
+            popNotice(true, 'Email or password is not compliant.');
             return;
         }
 
@@ -1848,7 +1901,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             }
         } catch (error) {
             console.error('Registration failed:', error);
-            new Notice('Registration failed. Please check your network connection and try again.');
+            popNotice(true, 'Registration failed. Please check your network connection and try again.');
         }
     }
 
@@ -1865,7 +1918,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             }
         } catch (error) {
             console.error('Login failed:', error);
-            new Notice('Login failed. Please check your network connection and try again.');
+            popNotice(true, 'Login failed. Please check your network connection and try again.');
         }
     }
 
@@ -1980,6 +2033,31 @@ class Lock {
                 resolve();
             }
         }
+    }
+}
+
+class NonBlockingLock {
+    private _lockMap: Map<string, boolean> = new Map();
+
+    acquire(key: string = "default"): boolean {
+        if (!this._lockMap.has(key)) {
+            this._lockMap.set(key, false);
+        }
+
+        if (this._lockMap.get(key)) {
+            return false;
+        }
+
+        this._lockMap.set(key, true);
+        return true;
+    }
+
+    release(key: string = "default"): void {
+        this._lockMap.set(key, false);
+    }
+
+    isLocked(key: string = "default"): boolean {
+        return this._lockMap.get(key) ?? false;
     }
 }
 
@@ -2108,7 +2186,7 @@ class ChangePasswordModal extends Modal {
 
     async changePassword() {
         if (!validatePassword(this.newPassword)) {
-            new Notice('New password must be at least 8 characters long.');
+            popNotice(true, 'New password must be at least 8 characters long.');
             return;
         }
 
@@ -2120,12 +2198,12 @@ class ChangePasswordModal extends Modal {
                 })
 
             if (response) {
-                new Notice('Password changed successfully.');
+                popNotice(true, 'Password changed successfully.');
                 this.close();
             }
         } catch (error) {
             console.error('Password change failed:', error);
-            new Notice('Password change failed. Please try again later.');
+            popNotice(true, 'Password change failed. Please try again later.');
         }
     }
 
@@ -2146,7 +2224,7 @@ async function hashPassword(password: string): Promise<string> {
 }
 
 function handleResponse(response: any) {
-    new Notice(response.error_message);
+    popNotice(true, response.error_message);
 }
 
 function validateEmail(email: string): boolean {
@@ -2168,6 +2246,14 @@ function validatePassword(password: string): boolean {
     }
 
     return true;
+}
+
+function popNotice(flag: boolean, message: string, duration?: number): Notice|null {
+    // Check if the password length is at least 8 characters
+    if (flag)
+        return new Notice(message,duration);
+    else
+        return null;
 }
 
 async function apiRequestByAccessToken(plugin: CloudStoragePlugin, method: string, url: string, data: any, token: string | null = null, type: string = 'json') {
@@ -2210,13 +2296,13 @@ async function apiRequestByAccessToken(plugin: CloudStoragePlugin, method: strin
                     return response3.json;
                 } else if (response3.status === 200 && response3.json.error_code === 6001) {
                     // Invalid access token, please relogin
-                    new Notice('Error: Invalid access token, please relogin.');
+                    popNotice(true, 'Error: Invalid access token, please relogin.');
                     return null;
                 } else if (response3.status === 200 && response3.json.error_code === 7003) {
-                    new Notice(response3.json.error_message);
+                    popNotice(true, response3.json.error_message);
                     return response3.json;
                 } else if (response3.status === 200 && response3.json.error_code === 7002) {
-                    new Notice(response3.json.error_message);
+                    popNotice(true, response3.json.error_message);
                     return response3.json;
                 }
                 else {
@@ -2225,15 +2311,15 @@ async function apiRequestByAccessToken(plugin: CloudStoragePlugin, method: strin
                 }
             }
             else {
-                new Notice('Error: Invalid access token, please relogin.');
+                popNotice(true, 'Error: Invalid access token, please relogin.');
                 return null;
             }
 
         } else if (response.status === 200 && response.json.detail.error_code === 7003) {
-            new Notice(response.json.detail.error_message);
+            popNotice(true, response.json.detail.error_message);
             return response.json.detail;
         } else if (response.status === 200 && response.json.detail.error_code === 7002) {
-            new Notice(response.json.detail.error_message);
+            popNotice(true, response.json.detail.error_message);
             return response.json.detail;
         }
         else {
@@ -2266,13 +2352,13 @@ async function apiRequestByRefreshToken(plugin: CloudStoragePlugin, method: stri
             return response.json.detail;
         } else if (response.status === 200 && response.json.detail.error_code === 6001) {
             // Invalid access token, please relogin
-            new Notice('Error: Invalid access token, please relogin.');
+            popNotice(true, 'Error: Invalid access token, please relogin.');
             return null;
         } else if (response.status === 200 && response.json.detail.error_code === 7003) {
-            new Notice(response.json.detail.error_message);
+            popNotice(true, response.json.detail.error_message);
             return response.json.detail;
         } else if (response.status === 200 && response.json.detail.error_code === 7002) {
-            new Notice(response.json.detail.error_message);
+            popNotice(true, response.json.detail.error_message);
             return response.json.detail;
         }
         else {
@@ -2297,7 +2383,7 @@ async function refreshAccessToken(plugin: CloudStoragePlugin) {
         }
     } catch (error) {
         console.error('getAccessToken', error);
-        new Notice('Get access token failed');
+        popNotice(true, 'Get access token failed');
         return null;
 
     }
@@ -2322,7 +2408,7 @@ async function getTempToken(plugin: CloudStoragePlugin, goal: string) {
         }
     } catch (error) {
         console.error('tmp_token', error);
-        new Notice('Unable to obtain token');
+        popNotice(true, 'Unable to obtain token');
         return null;
 
     }
