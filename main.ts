@@ -5,7 +5,7 @@ import type { S3Config } from "./utils/baseTypes";
 import { CustomS3 } from "./utils/customS3";
 import {getHeaderCaseInsensitive} from "./utils/utils";
 
-const VERSION = "1.3.23"
+const VERSION = "1.3.24"
 // Configuration
 const PART_MAX_RETRIES = 3;
 const DEFAULT_MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
@@ -429,22 +429,30 @@ export default class CloudStoragePlugin extends Plugin {
         let retries = 0;
         try {
             while (retries < PART_MAX_RETRIES) {
-                const res = await this.customS3Client!.uploadFile(file, fullKey, this.app);
-                if (res) {
-                    return [UploadStatus.Success, fullKey, "", "", ""];
-                }  
+                try {
+                    const res = await this.customS3Client!.uploadFile(file, fullKey, this.app);
+                    if (res) {
+                        return [UploadStatus.Success, fullKey, "", "", ""];
+                    }
+                }
+                catch (error) {
+                    retries++;
+                    if (retries >= PART_MAX_RETRIES) {
+                        console.error(`Failed to upload ${file.name} after ${PART_MAX_RETRIES} retries. ${error}`);
+                        throw error;
+                    }
+                    else {
+                        console.warn(`Error custom S3 ${file.name}. Retrying... (${retries + 1}/${PART_MAX_RETRIES})`);
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 1000 * retries)); // Exponential backoff
+                }
+                  
             }
         }
         catch (error) {
-            retries++;
-            if (retries >= PART_MAX_RETRIES) {
-                console.error(`Failed to upload ${file.name} after ${PART_MAX_RETRIES} retries. ${error}`);
-                throw error;
-            }
-            else {
-                console.warn(`Error uploading part ${file.name}. Retrying... (${retries + 1}/${PART_MAX_RETRIES})`);
-            }
-            await new Promise(resolve => setTimeout(resolve, 1000 * retries)); // Exponential backoff
+            console.error("Error during file upload:", error);
+            // Keep the progress saved so we can resume later
+            throw error;
         }
 
         return [UploadStatus.CustomS3UploadError, "", "", "", ""];
@@ -789,7 +797,7 @@ export default class CloudStoragePlugin extends Plugin {
                             console.error(`Failed to upload ${linkedFile.path}:`, error);
                             // new Notice(`Failed to upload ${linkedFile.name}`);
                         } finally {
-                            new Notice(`Uploaded Successfully: ${linkedFile.name}`);
+                            // new Notice(`Uploaded Successfully: ${linkedFile.name}`);
                             this.uploadingFiles.delete(linkedFile.path);
                         }
                     }
@@ -798,6 +806,8 @@ export default class CloudStoragePlugin extends Plugin {
         } catch (error) {
             console.error("Error uploading attachments:", error);
             // new Notice("Error uploading attachments");
+        }finally {
+            this.proccessing = false;
         }
     }
 
@@ -1090,7 +1100,7 @@ export default class CloudStoragePlugin extends Plugin {
                     return;
                 }
                 else if (result && result[0] === UploadStatus.CustomS3UploadError) {
-                    return;
+                    throw new Error('custom s3 upload error');
                 }
 
             } catch (error) {
@@ -1098,6 +1108,7 @@ export default class CloudStoragePlugin extends Plugin {
                     console.error(`Failed to upload ${file.name} to S3 after ${maxRetries} attempts: ${error.message}`);
                     new Notice(`Failed to upload ${file.name} to S3 after ${maxRetries} attempts: ${error.message}`);
                     await this.updateUploadedErrorFileInfo();
+                    throw error;
                 } else {
                     console.warn(`Attempt ${attempt} to upload ${file.name} failed. Retrying in ${retryDelay * attempt / 1000}s...`, 10);
                     new Notice(`${file.name} retring...`);
