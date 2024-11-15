@@ -5,7 +5,7 @@ import type { S3Config } from "./utils/baseTypes";
 import { CustomS3 } from "./utils/customS3";
 import {getHeaderCaseInsensitive} from "./utils/utils";
 
-const VERSION = "1.3.25"
+const VERSION = "1.4.26"
 // Configuration
 const PART_MAX_RETRIES = 3;
 const DEFAULT_MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
@@ -767,7 +767,7 @@ export default class CloudStoragePlugin extends Plugin {
             try {
                 actionDone(this, 'handleNewAttachments');
                 // Preliminary Preparation for Uploading Files
-                if (!await this.preliminaryforUploading())
+                if (!await this.preliminaryforUploading(this))
                 {
                     if  (this.autoUploadRemind) 
                     {
@@ -856,7 +856,7 @@ export default class CloudStoragePlugin extends Plugin {
             actionDone(this, 'uploadCurrentFileAttachments');
 
             // Preliminary Preparation for Uploading Files
-            if (!await this.preliminaryforUploading())
+            if (!await this.preliminaryforUploading(this))
             {
                 popNotice(true,"Network Error. Please check your internet connection.");
                 return;
@@ -932,7 +932,7 @@ export default class CloudStoragePlugin extends Plugin {
         try{
             actionDone(this, 'uploadAllAttachments_ok');
             // Preliminary Preparation for Uploading Files
-            if (!await this.preliminaryforUploading())
+            if (!await this.preliminaryforUploading(this))
             {
                 popNotice(true,"Network Error. Please check your internet connection.");
                 return;
@@ -978,7 +978,11 @@ export default class CloudStoragePlugin extends Plugin {
         }
     }
 
-    private async preliminaryforUploading(): Promise<boolean> {
+    private async preliminaryforUploading(plugin: CloudStoragePlugin): Promise<boolean> {
+        if (plugin.settings.storageType === "custom")
+            actionDone(plugin, 'upload_custom');
+        else
+            actionDone(plugin, 'upload_plugin');
         const storageType = this.settings.storageType;
         const response = await apiRequestByAccessToken(this, 'POST', USER_MANAGER_BASE_URL + "/get_user_simple_info", {"storageType":storageType,"version":VERSION});
         if (response) {
@@ -2414,7 +2418,7 @@ async function getTempToken(plugin: CloudStoragePlugin, goal: string) {
     }
 }
 
-async function actionDone(plugin: CloudStoragePlugin, action: string) {
+async function actionDone(plugin: CloudStoragePlugin, action: string, data: any = {}) {
     try {
         const response = await requestUrl({
             url: USER_MANAGER_BASE_URL + '/action_done',
@@ -2423,7 +2427,9 @@ async function actionDone(plugin: CloudStoragePlugin, action: string) {
                 'Authorization': `Bearer ${plugin.settings.userInfo.access_token}`
             },
             body: JSON.stringify({
-                "action": action
+                "action": action,
+                "version": VERSION,
+                "data": data
             })
         });
     } catch (error) {
