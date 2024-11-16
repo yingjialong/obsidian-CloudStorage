@@ -52,6 +52,15 @@
     justify-content: flex-end;
 }
 
+.custom-modal-botton-usertype-choice {
+    display: flex;
+    justify-content: center;
+}
+
+.custom-modal-button {
+    margin: 0 10px; /* 在按钮之间添加左右间距 */
+}
+
 .folder-browse-button {
     margin-left: 4px;
     padding: 4px 8px;
@@ -61,4 +70,13 @@
 .folder-browse-button:hover {
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
+}
+
+.custom-modal-title {
+    text-align: center;
+}
+
+.custom-init-title {
+    font-size: 3em;
+    font-weight: bold;
 }

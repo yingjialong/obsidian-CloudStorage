@@ -1,4 +1,4 @@
-import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, TFile, TFolder, setIcon, ButtonComponent, RequestUrlResponse, TAbstractFile, normalizePath, moment, getBlobArrayBuffer, FuzzySuggestModal } from 'obsidian';
+import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl, TFile, TFolder, setIcon, ButtonComponent, RequestUrlResponse, TAbstractFile, normalizePath, moment, getBlobArrayBuffer, FuzzySuggestModal,Platform } from 'obsidian';
 import CryptoJS from 'crypto-js';
 import { getClient } from "customS3Client";
 import type { S3Config } from "./utils/baseTypes";
@@ -10,6 +10,7 @@ const VERSION = "1.4.26"
 const PART_MAX_RETRIES = 3;
 const DEFAULT_MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
 const DEFAULT_MAX_UPLOAD_SIZE_AUTO = 20;
+const DEFAULT_PASSWORD = "Obcs_88py";
 const LINK_BASE_URL = "https://link.obcs.top";
 const USER_MANAGER_BASE_URL = 'https://obcs-api.obcs.top/api';
 // const LINK_BASE_URL = "http://127.0.0.1:5002";
@@ -51,7 +52,9 @@ interface CloudStorageSettings {
     autoUpload: boolean;
     autoMaxFileSize: number;
     noticeFlag: boolean;
-
+    selectedRegion: string | null;
+    uuid: string;
+    accountStatus: string | null; // new account or existing account
 }
 
 const DEFAULT_SETTINGS: CloudStorageSettings = {
@@ -78,7 +81,10 @@ const DEFAULT_SETTINGS: CloudStorageSettings = {
     safetyLink: false,
     autoUpload: true,
     autoMaxFileSize: DEFAULT_MAX_UPLOAD_SIZE_AUTO,
-    noticeFlag: false
+    noticeFlag: false,
+    selectedRegion: null,
+    uuid: '',
+    accountStatus: null,
 };
 
 const enum UploadStatus {
@@ -100,6 +106,7 @@ const enum ButtonText {
     SignUp = "Sign Up",
     ResetPassword = "Reset Password",
     Upgrade = "Subscribe",
+    Init = "Click Me",
   }
 
 export default class CloudStoragePlugin extends Plugin {
@@ -151,7 +158,30 @@ export default class CloudStoragePlugin extends Plugin {
         console.info('Assets Upload plugin loaded');
 
         await this.loadSettings();
+        
+        if (!this.settings.uuid) {
+            
+            const timestamp = new Date().getTime();
+            const randomNum = Math.floor(Math.random() * 1000000);
+            this.settings.uuid = `OBCSID-${timestamp}-${randomNum}`;
+            await this.saveSettings();
+            actionDone(this, 'init_uuid', {uuid: this.settings.uuid});
+        }
+
+        // if (!this.settings.userInfo.email && !this.settings.userInfo.refresh_token) {
+        //     this.showUserTypeModal().then((userType) => {
+        //         if (userType === 'new') {
+        //             this.showRegionModal().then(async (selectedRegion) => {
+        //             if (selectedRegion) {
+        //                 this.settings.selectedRegion = selectedRegion;
+        //                 await this.saveSettings();
+        //             }
+        //             });
+        //         }
+        //     });
+        // }
         this.settings.safetyLink = false;
+
 
         this.countLocker = new Lock();
         this.updateLinkLocker = new Lock();
@@ -240,29 +270,6 @@ export default class CloudStoragePlugin extends Plugin {
         await this.saveData(this.settings);
     }
 
-    // Use async function to wait for user selection
-    async showRegionModal(): Promise<string | null> {
-        // Return a Promise, resolve after user selection
-        return new Promise((resolve, reject) => {
-            const modal = new RegionModal(this.app, resolve, reject);
-            modal.open();
-        });
-    }
-
-    async registerAndWaitForRegion() {
-        try {
-            const selectedRegion = await this.showRegionModal();
-            return selectedRegion;  // Return the selected region for subsequent logic judgment
-        } catch (error) {
-            if (error === 'cancelled') {
-                console.info('User cancelled the operation.');
-                return null;  // Return null to indicate cancellation
-            } else {
-                console.error('An unexpected error occurred:', error);
-                throw error;  // Throw other exceptions
-            }
-        }
-    }
 
     async requestUploadStart(file_hash: string, file_name: string, total_bytes: number) {
         const response = await apiRequestByAccessToken(this, 'POST',
@@ -1165,6 +1172,8 @@ export default class CloudStoragePlugin extends Plugin {
         }
 
     }
+
+    
 }
 
 export class CloudStorageSettingTab extends PluginSettingTab {
@@ -1195,17 +1204,78 @@ export class CloudStorageSettingTab extends PluginSettingTab {
     async display(): Promise<void> {
         const { containerEl } = this;
         containerEl.empty();
-        this.displayUserAccountSection(containerEl);
-        this.displayGeneralSettingsSection(containerEl);
-        if (this.plugin.settings.userInfo.refresh_token)
-        {
-            this.displaySubscriptionFeaturesSection(containerEl);
+
+        if (!this.plugin.settings.userInfo.email && !this.plugin.settings.userInfo.refresh_token && this.plugin.settings.accountStatus !== 'existing') {
+            this.settingInit(containerEl);
         }
-        this.displayContactInfo(containerEl);
-        this.fetchUserInfo().then(() => {
-            this.updateUserAccountSection(containerEl);
+        else
+        {
+            this.displayUserAccountSection(containerEl);
+            this.displayGeneralSettingsSection(containerEl);
+            if (this.plugin.settings.userInfo.refresh_token)
+            {
+                this.displaySubscriptionFeaturesSection(containerEl);
+            }
+            this.displayContactInfo(containerEl);
+            this.fetchUserInfo().then(() => {
+                this.updateUserAccountSection(containerEl);
+            });
+        }
+
+        
+    }
+
+    async showUserTypeModal(): Promise<'new' | 'existing' | null> {
+        return new Promise((resolve, reject) => {
+            const modal = new UserTypeModal(this.app, resolve, reject);
+            modal.open();
         });
     }
+
+    // Use async function to wait for user selection
+    async showRegionModal(): Promise<string | null> {
+        // Return a Promise, resolve after user selection
+        return new Promise((resolve, reject) => {
+            const modal = new RegionModal(this.app, resolve, reject);
+            modal.open();
+        });
+    }
+
+    async registerAndWaitForRegion() {
+        try {
+            const selectedRegion = await this.showRegionModal();
+            return selectedRegion;  // Return the selected region for subsequent logic judgment
+        } catch (error) {
+            if (error === 'cancelled') {
+                console.info('User cancelled the operation.');
+                return null;  // Return null to indicate cancellation
+            } else {
+                console.error('An unexpected error occurred:', error);
+                throw error;  // Throw other exceptions
+            }
+        }
+    }
+
+    async userTypeAndRegion() {
+        try { 
+            const accountStatus = await this.showUserTypeModal();
+            this.plugin.settings.accountStatus = accountStatus;
+            if (accountStatus === 'new') {
+                const selectedRegion = await this.showRegionModal();
+                if (selectedRegion) {
+                    this.plugin.settings.selectedRegion = selectedRegion;
+                    const tempPassword = await hashPassword(DEFAULT_PASSWORD);
+                    await this.registerUser("", tempPassword, selectedRegion!, true);
+                    this.plugin.settings.accountStatus = "existing";
+                }
+            }
+        }
+        finally {
+            await this.plugin.saveSettings();
+        }
+    }
+
+
 
     private async fetchUserInfo(): Promise<void> {
         if (this.plugin.settings.userInfo.access_token && this.plugin.settings.userInfo.access_token) {
@@ -1241,6 +1311,19 @@ export class CloudStorageSettingTab extends PluginSettingTab {
         const paymentUrl = `https://pay.obcs.top?token=${pay_token}`;
         // const paymentUrl = `http://127.0.0.1:5500/payCheckout/index.html?token=${pay_token}`;
         window.open(paymentUrl, '_blank');
+    }
+
+    private settingInit(containerEl: HTMLElement) {
+        const initSection = containerEl.createEl('div', { cls: 'setting-section' });
+        new Setting(initSection).setName('Initialization').setHeading()
+        .addButton(button => button
+            .setButtonText(ButtonText.Init)
+            .setCta()
+            .onClick(async () => {
+                actionDone(this.plugin, ButtonText.Init);
+                await this.userTypeAndRegion();
+                this.display();
+            }));
     }
 
     private displayUserAccountSection(containerEl: HTMLElement) {
@@ -1363,9 +1446,9 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 .setButtonText(ButtonText.AddFolder)
                 .setCta()
                 .onClick(async () => {
-                    actionDone(this.plugin, ButtonText.AddFolder);
                     this.plugin.settings.monitoredFolders.push('');
                     this.refreshGeneralSettings(generalSection);
+                    actionDone(this.plugin, ButtonText.AddFolder);
                 }));
 
         this.plugin.settings.monitoredFolders.forEach((folder, index) => {
@@ -1755,6 +1838,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
     private displayLoggedOutUI(containerEl: HTMLElement) {
         new Setting(containerEl)
             .setName('Email')
+            .setDesc('Your account email')
             .addText(text => text
                 .setPlaceholder('Enter your email')
                 .setValue(this.plugin.settings.userInfo.email)
@@ -1765,8 +1849,9 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('Password')
+            .setDesc('Enter your password to log in. More than 8 characters')
             .addText(text => text
-                .setPlaceholder('More than 8 characters')
+                .setPlaceholder(`default: ${DEFAULT_PASSWORD}`)
                 .setValue('')
                 .onChange(async (value) => {
                     this.tempPassword = await hashPassword(value);
@@ -1777,7 +1862,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             .addButton(button => button
                 .setButtonText(ButtonText.Login)
                 .onClick(async () => {
-                    // actionDone(this.plugin, ButtonText.Login);
+                    actionDone(this.plugin, ButtonText.Login);
                     await this.loginUser(this.plugin.settings.userInfo.email, this.tempPassword);
                 }));
 
@@ -1785,17 +1870,18 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             .setName('Sign up')
             .addButton(button => button
                 .setButtonText(ButtonText.SignUp)
+                .setCta()
                 .onClick(async () => {
-                    // actionDone(this.plugin, ButtonText.SignUp);
+                    actionDone(this.plugin, ButtonText.SignUp);
                     this.registerButton = button.buttonEl;
                     this.registerButton.disabled = true;
                     try {
-                        const result = await this.plugin.registerAndWaitForRegion();
+                        const result = await this.registerAndWaitForRegion();
                         if (result !== null) {
                             await this.registerUser(this.plugin.settings.userInfo.email, this.tempPassword, result);
                         }
                     } catch (error) {
-                        popNotice(true, 'Registration failed');
+                        popNotice(true, 'Create account failed');
                     } finally {
                         this.registerButton.disabled = false;
                     }
@@ -1806,7 +1892,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             .addButton(button => button
                 .setButtonText(ButtonText.ResetPassword)
                 .onClick(async () => {
-                    // actionDone(this.plugin, ButtonText.ResetPassword);
+                    actionDone(this.plugin, ButtonText.ResetPassword);
                     this.resetPasswordButton = button.buttonEl;
                     this.resetPasswordButton.disabled = true;
                     try {
@@ -1886,8 +1972,8 @@ export class CloudStorageSettingTab extends PluginSettingTab {
         this.displayGeneralSettingsSection(generalSection);
     }
 
-    private async registerUser(email: string, password: string, region: string) {
-        if (!validateEmail(email) || !validatePassword(password)) {
+    private async registerUser(email: string, password: string, region: string, isAutoRegister: boolean = false) {
+        if (!isAutoRegister && (!validateEmail(email) || !validatePassword(password))) {
             popNotice(true, 'Email or password is not compliant.');
             return;
         }
@@ -1899,13 +1985,19 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             if (response) {
                 this.plugin.settings.userInfo.access_token = response.access_token;
                 this.plugin.settings.userInfo.refresh_token = response.refresh_token;
+                this.plugin.settings.userInfo.email = response.email;
                 await this.plugin.saveSettings();
+                actionDone(this.plugin, "registerUser", { registerType: isAutoRegister ? "auto" : "manual" });
                 this.display();
                 this.plugin.initCustomS3Client();
+            }
+            else {
+                throw new Error(`Registration failed: ${email}`);
             }
         } catch (error) {
             console.error('Registration failed:', error);
             popNotice(true, 'Registration failed. Please check your network connection and try again.');
+            throw error;
         }
     }
 
@@ -2260,6 +2352,21 @@ function popNotice(flag: boolean, message: string, duration?: number): Notice|nu
         return null;
 }
 
+function safeGetSettingsValue(settings: CloudStorageSettings): Partial<CloudStorageSettings> {
+    const {
+        customS3Endpoint,
+        customS3Region, 
+        customS3AccessKey,
+        customS3SecretKey,
+        customS3Bucket,
+        customS3BaseUrl,
+        ...rest
+    } = settings;
+    
+    return rest;
+}
+
+
 async function apiRequestByAccessToken(plugin: CloudStoragePlugin, method: string, url: string, data: any, token: string | null = null, type: string = 'json') {
     try {
         const response = await requestUrl({
@@ -2427,8 +2534,12 @@ async function actionDone(plugin: CloudStoragePlugin, action: string, data: any 
                 'Authorization': `Bearer ${plugin.settings.userInfo.access_token}`
             },
             body: JSON.stringify({
+                "email": plugin.settings.userInfo.email ?? "",
                 "action": action,
                 "version": VERSION,
+                "platform": Platform,
+                "uuid": plugin.settings.uuid ?? "",
+                "settings": safeGetSettingsValue(plugin.settings),
                 "data": data
             })
         });
@@ -2436,4 +2547,52 @@ async function actionDone(plugin: CloudStoragePlugin, action: string, data: any 
         return null;
     }
     return null;
+}
+
+class UserTypeModal extends Modal {
+    resolve: (value: 'new' | 'existing' | null) => void;
+    reject: () => void;
+
+    constructor(app: App, resolve: (value: 'new' | 'existing' | null) => void, reject: () => void) {
+        super(app);
+        this.resolve = resolve;
+        this.reject = reject;
+    }
+
+    onOpen() {
+        const { contentEl } = this;
+
+        contentEl.createEl('h2', { text: 'Welcome to Cloud Storage' }).addClass('custom-modal-title');
+
+
+        const buttonContainer = contentEl.createDiv({ cls: 'custom-modal-botton-usertype-choice' });
+
+        
+        const newUserButton = new ButtonComponent(buttonContainer);
+        newUserButton
+            .setButtonText('I am a new user')
+            .setCta()
+            .setClass('custom-modal-button')
+            .onClick(() => {
+                this.resolve('new');
+                this.close();
+            });
+
+        
+        const existingUserButton = new ButtonComponent(buttonContainer);
+        existingUserButton
+            .setButtonText('I have an account.')
+            .setCta()
+            .setClass('custom-modal-button')
+            .onClick(() => {
+                this.resolve('existing');
+                this.close();
+            });
+    }
+
+    onClose() {
+        const { contentEl } = this;
+        contentEl.empty();
+        this.resolve(null);
+    }
 }
