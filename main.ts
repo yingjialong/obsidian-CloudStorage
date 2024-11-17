@@ -786,7 +786,7 @@ export default class CloudStoragePlugin extends Plugin {
                 {
                     if  (this.autoUploadRemind) 
                     {
-                        popNotice(true,"Network Error. Please check your internet connection.");
+                        popNotice(true,"Network error. Please check your internet connection.");
                         this.autoUploadRemind = false;
                     }
                     return;
@@ -854,7 +854,7 @@ export default class CloudStoragePlugin extends Plugin {
         }
         
         if (this.proccessing) {
-            popNotice(true,'Please wait for the previous upload to finish.');
+            popNotice(true,'Please wait until the current upload is complete.');
             return;
         }
         if (this.fileUploadLocker.acquire())
@@ -863,7 +863,7 @@ export default class CloudStoragePlugin extends Plugin {
         }
         else
         {
-            popNotice(true,'Please wait for the previous upload to finish.');
+            popNotice(true,'Please wait until the current upload is complete.');
             return;
         }
 
@@ -873,7 +873,7 @@ export default class CloudStoragePlugin extends Plugin {
             // Preliminary Preparation for Uploading Files
             if (!await this.preliminaryforUploading(this))
             {
-                popNotice(true,"Network Error. Please check your internet connection.");
+                popNotice(true,"Network error. Please check your internet connection.");
                 return;
             }
 
@@ -902,7 +902,7 @@ export default class CloudStoragePlugin extends Plugin {
 
             // Wait for all uploads to complete
             await Promise.all(uploadPromises);
-            popNotice(true,`Storage completed: success ${this.uploadedSuccessFileCount}, failure ${this.uploadedErrorFileCount}, skipped ${this.skipUploadCount}`)
+            popNotice(true,`Upload complete: ${this.uploadedSuccessFileCount} successful, ${this.uploadedErrorFileCount} failed, ${this.skipUploadCount} skipped`)
         } catch (error) {
             console.error("Error uploading attachments:", error);
         } finally {
@@ -922,14 +922,14 @@ export default class CloudStoragePlugin extends Plugin {
         }
 
         if (this.proccessing) {
-            popNotice(true,'Please wait for the previous upload to finish.');
+            popNotice(true,'Please wait until the current upload is complete.');
             return;
         }
 
         // Get "Monitored Folders" from plugin settings
         const monitoredFolders = this.settings.monitoredFolders; // Assume this information is stored in settings
         if (monitoredFolders.length === 0) {
-            popNotice(true,'No monitored folders found.Please add monitored folders first.');
+            popNotice(true,'No monitored folders found. Please add monitored folders first.');
             actionDone(this, 'uploadAllAttachments_nomonitored');
             return;
         }
@@ -940,7 +940,7 @@ export default class CloudStoragePlugin extends Plugin {
         }
         else
         {
-            popNotice(true,'Please wait for the previous upload to finish.');
+            popNotice(true,'Please wait until the current upload is complete.');
             return;
         }
 
@@ -949,7 +949,7 @@ export default class CloudStoragePlugin extends Plugin {
             // Preliminary Preparation for Uploading Files
             if (!await this.preliminaryforUploading(this))
             {
-                popNotice(true,"Network Error. Please check your internet connection.");
+                popNotice(true,"Network error. Please check your internet connection.");
                 return;
             }
 
@@ -963,7 +963,7 @@ export default class CloudStoragePlugin extends Plugin {
                 }
             }
             await Promise.all(allFilePromises);
-            popNotice(true,`Storage completed: success ${this.uploadedSuccessFileCount}, failure ${this.uploadedErrorFileCount}, skipped ${this.skipUploadCount}`)
+            popNotice(true,`Upload complete: ${this.uploadedSuccessFileCount} successful, ${this.uploadedErrorFileCount} failed, ${this.skipUploadCount} skipped`)
         }
         finally {
             await this.updateStatusBar();
@@ -1468,7 +1468,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
         new Setting(generalSection)
             .setName('Monitored Folders')
-            .setDesc('Specify folders to monitor for attachments. All attachments in these folders will be uploaded.')
+            .setDesc('Select folders to monitor. All attachments in these folders will be uploaded.')
             .addButton(button => button
                 .setButtonText(ButtonText.AddFolder)
                 .setCta()
@@ -1506,7 +1506,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
         new Setting(generalSection)
         .setName('More Detailed Notifications')
-        .setDesc('If too many notices are affecting the experience, they can be turned off')
+        .setDesc('Disable this option if you prefer fewer notifications')
         .addToggle(toggle => toggle
             .setValue(this.plugin.settings.noticeFlag)
             .onChange(async (value) => {
@@ -1516,7 +1516,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
         new Setting(generalSection)
             .setName('Local File Handling After Upload')
-            .setDesc('Choose how to handle local attachments after they are successfully uploaded to the cloud.')
+            .setDesc('Select how to handle local files after successful cloud upload.')
             .addDropdown(dropdown => dropdown
                 .addOption('recycle', 'Move to Recycle Bin')
                 .addOption('move', 'Move to Custom Folder')
@@ -1676,7 +1676,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
     private async resendVerificationEmail(): Promise<void> {
         if (this.plugin.settings.userInfo.email.endsWith('@obcs.top')) {
-            popNotice(true, 'Please change your email address to your own before authenticating.');
+            popNotice(true, 'Please update to your personal email address before authenticating.');
             return;
         }
         try {
@@ -1788,7 +1788,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 .onClick(() => {
                     actionDone(this.plugin, ButtonText.ChangePassword);
                     if (this.plugin.settings.userInfo.email.endsWith('@obcs.top')) {
-                        popNotice(true, 'Please update your email address to one you own before changing your password. Otherwise, you won’t be able to recover it.');
+                        popNotice(true, 'Please update to your personal email address before changing your password. Otherwise, password recovery will not be possible.');
                         return;
                     }
                     new ChangePasswordModal(this.app, this.plugin).open();
@@ -1816,7 +1816,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             emailVerificationSetting.descEl.addClass('email-verified');
         } else {
             emailVerificationSetting
-                .setDesc('Email is not verified. Verify your email to receive an additional 512 MB of storage.')
+                .setDesc('Email not verified. Verify your email to receive an additional 512 MB of storage.')
                 .addButton(button =>
                     button
                         .setButtonText(ButtonText.ResendVerificationEmail)
@@ -1837,7 +1837,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
     private displayStorageUsage(containerEl: HTMLElement) {
         const storageUsageSetting = new Setting(containerEl)
             .setName('Storage Usage')
-            .setDesc(`${this.formatSize(this.userInfo.storageUsed)} / ${this.formatSize(this.userInfo.storageLimit)} used. ⚠️ Bucket storage sizes are computed once per day.`)
+            .setDesc(`${this.formatSize(this.userInfo.storageUsed)} / ${this.formatSize(this.userInfo.storageLimit)} used. ⚠️ Storage usage is updated daily.`)
             // .addExtraButton(button => button
             //     .setIcon('refresh-cw')
             //     .setTooltip('Refresh storage usage')
@@ -2249,7 +2249,7 @@ class RegionModal extends Modal {
 
         // Create a prompt message, set to red, small font size
         const description = contentEl.createEl('p', {
-            text: 'Please select the region closest to you. This will help optimize your file upload and download speeds.',
+            text: 'Please select the region closest to you for optimal upload and download speeds.',
         });
         description.addClass('custom-setting-item-description');
 
