@@ -16,6 +16,13 @@ const USER_MANAGER_BASE_URL = 'https://obcs-api.obcs.top/api';
 // const LINK_BASE_URL = "http://127.0.0.1:5002";
 // const USER_MANAGER_BASE_URL = 'http://127.0.0.1:5001/api';
 
+class ServiceRejectedError extends Error {
+    constructor(message: string, public code?: string) {
+        super(message);
+        this.name = 'ServiceRejectedError';
+    }
+}
+
 interface UploadProgress {
     uploadId: string;
     key: string;  // S3 file key
@@ -102,11 +109,12 @@ const enum ButtonText {
     RetrieveFiles = "Retrieve Files",
     ChangePassword = "Change Password",
     Logout = "Logout",
-    ResendVerificationEmail = "Resend Verification Email",
+    ResendVerificationEmail = "Send Verification Email",
     SignUp = "Sign Up",
     ResetPassword = "Reset Password",
-    Upgrade = "Subscribe",
+    Upgrade = "Get Premium Now – Free!",
     Init = "Click Me",
+    ChangeEmail = "Change Email",
   }
 
 export default class CloudStoragePlugin extends Plugin {
@@ -1333,16 +1341,35 @@ export class CloudStorageSettingTab extends PluginSettingTab {
         if (this.plugin.settings.userInfo.refresh_token) {
             // User is logged in
             // Email setting always displayed
-            const emailSetting = new Setting(accountSection)
-                .setName('Email')
-                .setDesc(this.plugin.settings.userInfo.email);
-            emailSetting.descEl.addClass('email-desc');
+            if (this.userInfo.isVerified) {
+                const emailSetting = new Setting(accountSection)
+                    .setName('Email')
+                    .setDesc(this.plugin.settings.userInfo.email);
+                emailSetting.descEl.addClass('email-desc');
+            }
+            else {
+                const emailSetting = new Setting(accountSection)
+                    .setName('Email')
+                    .setDesc(this.plugin.settings.userInfo.email)
+                    .addButton(button => button
+                        .setButtonText(ButtonText.ChangeEmail)
+                        .setCta()
+                        .onClick(async () => {
+                            
+                            const success = await this.changeEmail();
+                            if (success) {
+                                await this.logoutUser();
+                            }
+                        }));
+                emailSetting.descEl.addClass('email-desc');
+            }
             this.displayLoggedInUI(accountSection);
         } else {
             // User is not logged in
             this.displayLoggedOutUI(accountSection);
         }
     }
+    
 
 
     private displayCustomStorageSettings(containerEl: HTMLElement) {
@@ -1564,7 +1591,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 .setCta()
                 .onClick(async () => {
                     if (this.plugin.settings.userInfo.refresh_token) {
-                        actionDone(this.plugin, ButtonText.Upgrade);
+                        actionDone(this.plugin, "Subscribe");
                         const pay_token = await getTempToken(this.plugin,"upgrade");
                         if (!pay_token) {
                             console.error("Pay token failed to obtain");
@@ -1648,6 +1675,10 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
 
     private async resendVerificationEmail(): Promise<void> {
+        if (this.plugin.settings.userInfo.email.endsWith('@obcs.top')) {
+            popNotice(true, 'Please change your email address to your own before authenticating.');
+            return;
+        }
         try {
             const response = await apiRequestByAccessToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + '/resend_verification', {});
             if (response) {
@@ -1657,7 +1688,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             }
         } catch (error) {
             console.error('Failed to resend verification email:', error);
-            popNotice(true, 'Failed to send verification email. Please try again later.');
+            popNotice(true, 'Failed to send verification email.');
         }
     }
 
@@ -1756,6 +1787,10 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 .setButtonText(ButtonText.ChangePassword)
                 .onClick(() => {
                     actionDone(this.plugin, ButtonText.ChangePassword);
+                    if (this.plugin.settings.userInfo.email.endsWith('@obcs.top')) {
+                        popNotice(true, 'Please update your email address to one you own before changing your password. Otherwise, you won’t be able to recover it.');
+                        return;
+                    }
                     new ChangePasswordModal(this.app, this.plugin).open();
                 }));
 
@@ -1849,9 +1884,9 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('Password')
-            .setDesc('Enter your password to log in. More than 8 characters')
+            .setDesc(`Enter your password to log in. Default password: ${DEFAULT_PASSWORD}`)
             .addText(text => text
-                .setPlaceholder(`default: ${DEFAULT_PASSWORD}`)
+                .setPlaceholder('More than 8 characters')
                 .setValue('')
                 .onChange(async (value) => {
                     this.tempPassword = await hashPassword(value);
@@ -1909,7 +1944,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
     private async resetPassword(email: string) {
         try {
-            const response = await apiRequestByAccessToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + '/send_reset_mail', { email });
+            const response = await apiRequestByAccessToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + '/send_reset_mail', { "email": email });
 
             if (response) {
                 popNotice(true, 'Password reset email has been sent. Please check your inbox.');
@@ -1992,16 +2027,18 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 this.plugin.initCustomS3Client();
             }
             else {
-                throw new Error(`Registration failed: ${email}`);
+                throw new ServiceRejectedError(`Registration request rejected: ${email}`);
             }
         } catch (error) {
-            console.error('Registration failed:', error);
-            popNotice(true, 'Registration failed. Please check your network connection and try again.');
+            if (!(error instanceof ServiceRejectedError)) {
+                popNotice(true, 'Registration failed. Please check your network connection and try again.');
+            }
             throw error;
         }
     }
 
     private async loginUser(email: string, password: string) {
+        actionDone(this.plugin, "loginUser");
         try {
             const response = await apiRequestByAccessToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + '/login', { email, password });
 
@@ -2019,7 +2056,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
     }
 
     private async logoutUser() {
-
+        actionDone(this.plugin, "logoutUser");
         try {
             await apiRequestByRefreshToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + '/logout', {});
         } catch (error) {
@@ -2040,6 +2077,37 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             text: 'If you have any questions or need support, please contact us at: support@antmight.com',
             cls: 'setting-item-description'
         });
+    }
+
+    async changeEmail(): Promise<boolean> {
+        try {
+            const newEmail = await new Promise<string | null>((resolve) => {
+                new ChangeEmailModal(this.app, resolve).open();
+            });
+
+            if (!newEmail) return false;
+            actionDone(this.plugin, ButtonText.ChangeEmail,{'newEmail':newEmail});
+            const email = newEmail;
+
+            const response = await apiRequestByAccessToken(
+                this.plugin, 
+                'POST', 
+                USER_MANAGER_BASE_URL + "/change_email",
+                { email}
+            );
+
+            if (response) {
+                popNotice(true, 'Email changed successfully. Please log in with your new email.');
+                this.plugin.settings.userInfo.email = response.email;
+                await this.plugin.saveSettings();
+                return true;
+            }
+            return false;
+        } catch (error) {
+            console.error('Email change failed:', error);
+            popNotice(true, 'Failed to change email. Please try again later.');
+            return false;
+        }
     }
 }
 
@@ -2588,6 +2656,52 @@ class UserTypeModal extends Modal {
                 this.resolve('existing');
                 this.close();
             });
+    }
+
+    onClose() {
+        const { contentEl } = this;
+        contentEl.empty();
+        this.resolve(null);
+    }
+}
+
+class ChangeEmailModal extends Modal {
+    private resolve: (value: string | null) => void;
+    private newEmail: string = '';
+
+    constructor(app: App, resolve: (value: string | null) => void) {
+        super(app);
+        this.resolve = resolve;
+    }
+
+    onOpen() {
+        const { contentEl } = this;
+
+        contentEl.createEl('h2', { text: 'Change Email' });
+
+        // Add warning message
+        const warningEl = contentEl.createEl('p', {
+            text: 'Warning: After changing your email, you will be automatically logged out and need to log in again.'
+        });
+
+        new Setting(contentEl)
+            .setName('New Email')
+            .addText(text => text
+                .setPlaceholder('Enter new email')
+                .onChange(value => this.newEmail = value));
+
+        new Setting(contentEl)
+            .addButton(button => button
+                .setButtonText('Confirm')
+                .setCta()
+                .onClick(() => {
+                    if (!validateEmail(this.newEmail)) {
+                        popNotice(true, 'Please enter a valid email address.');
+                        return;
+                    }
+                    this.resolve(this.newEmail);
+                    this.close();
+                }));
     }
 
     onClose() {
