@@ -5,7 +5,7 @@ import type { S3Config } from "./utils/baseTypes";
 import { CustomS3 } from "./utils/customS3";
 import {getHeaderCaseInsensitive} from "./utils/utils";
 
-const VERSION = "1.4.26"
+const VERSION = "1.4.27"
 // Configuration
 const PART_MAX_RETRIES = 3;
 const DEFAULT_MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
@@ -15,6 +15,7 @@ const LINK_BASE_URL = "https://link.obcs.top";
 const USER_MANAGER_BASE_URL = 'https://obcs-api.obcs.top/api';
 // const LINK_BASE_URL = "http://127.0.0.1:5002";
 // const USER_MANAGER_BASE_URL = 'http://127.0.0.1:5001/api';
+// const USER_MANAGER_BASE_URL = 'https://dev.wor1d.top/api';
 
 class ServiceRejectedError extends Error {
     constructor(message: string, public code?: string) {
@@ -2574,7 +2575,8 @@ async function getTempToken(plugin: CloudStoragePlugin, goal: string) {
             url: USER_MANAGER_BASE_URL + '/get_temp_token',
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${plugin.settings.userInfo.access_token}`
+                'Authorization': `Bearer ${plugin.settings.userInfo.access_token}`,
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 "goal": goal
@@ -2599,7 +2601,8 @@ async function actionDone(plugin: CloudStoragePlugin, action: string, data: any 
             url: USER_MANAGER_BASE_URL + '/action_done',
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${plugin.settings.userInfo.access_token}`
+                'Authorization': `Bearer ${plugin.settings.userInfo.access_token}`,
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 "email": plugin.settings.userInfo.email ?? "",
