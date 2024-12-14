@@ -148,3 +148,7 @@ Stay tuned for these exciting updates!
 We value your input! If you have suggestions for improvements or new features, please let us know. For those interested in contributing to the development of Cloud Storage, check out our [contribution guidelines](#) (Coming soon).
 
 Thank you for choosing Cloud Storage to enhance your note-taking experience!
+
+## Special Thanks
+
+We would like to express our sincere gratitude to the [Remotely Save](https://github.com/remotely-save/remotely-save) project for their inspiration and assistance. Their work has been invaluable in shaping certain aspects of Cloud Storage. We appreciate their contributions to the Obsidian plugin ecosystem and the open-source community at large.

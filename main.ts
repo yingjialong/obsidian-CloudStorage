@@ -5,7 +5,7 @@ import type { S3Config } from "./utils/baseTypes";
 import { CustomS3 } from "./utils/customS3";
 import {getHeaderCaseInsensitive} from "./utils/utils";
 
-const VERSION = "1.4.27"
+const VERSION = "1.4.28";
 // Configuration
 const PART_MAX_RETRIES = 3;
 const DEFAULT_MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
@@ -24,15 +24,6 @@ class ServiceRejectedError extends Error {
     }
 }
 
-interface UploadProgress {
-    uploadId: string;
-    key: string;  // S3 file key
-    localPath: string;  // Local Obsidian file path
-    parts: { PartNumber: number; ETag: string }[];
-    bytesUploaded: number;
-    fileMD5: string;
-}
-
 interface UserInfo {
     email: string;
     access_token: string | null;
@@ -41,7 +32,6 @@ interface UserInfo {
 
 interface CloudStorageSettings {
     monitoredFolders: string[];
-    uploadProgress: Record<string, UploadProgress>;
     userInfo: UserInfo;
     filterMode: 'whitelist' | 'blacklist';
     fileExtensions: string;
@@ -67,7 +57,6 @@ interface CloudStorageSettings {
 
 const DEFAULT_SETTINGS: CloudStorageSettings = {
     monitoredFolders: [],
-    uploadProgress: {},
     userInfo: {
         email: '',
         access_token: null,
@@ -133,11 +122,9 @@ export default class CloudStoragePlugin extends Plugin {
     uploadedSuccessFileCount: number = 0; // Number of files successfully uploaded
     uploadedS3FileSize: number = 0; // Total size of files already uploaded to S3
     uploadingFileSize: number = 0; // Total size of files to be uploaded
-    private timer: NodeJS.Timeout | null = null;
     countLocker: Lock;
     updateLinkLocker: Lock;
     fileUploadLocker: NonBlockingLock;
-    private uploadProgress: Record<string, UploadProgress> = {};
     platformId: string;
     proccessing: boolean = false;
     proccessNotice: Notice | null = null;
@@ -145,8 +132,6 @@ export default class CloudStoragePlugin extends Plugin {
     isVerified: boolean = false;
     localFileHandling: 'move' | 'recycle';
     customMoveFolder: string;
-    private originalWindowOpen: typeof window.open;
-    private editorPlugin: any = null;
     autoUploadRemind: boolean = true;
 
     initCustomS3Client() {
