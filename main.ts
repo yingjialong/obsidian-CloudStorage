@@ -1773,8 +1773,8 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 .setButtonText(ButtonText.ChangePassword)
                 .onClick(() => {
                     actionDone(this.plugin, ButtonText.ChangePassword);
-                    if (this.plugin.settings.userInfo.email.endsWith('@obcs.top')) {
-                        popNotice(true, 'Please update to your personal email address before changing your password. Otherwise, password recovery will not be possible.');
+                    if (!this.userInfo.isVerified) {
+                        popNotice(true, 'Please verify your email before changing your password to ensure you can recover it later if needed.');
                         return;
                     }
                     new ChangePasswordModal(this.app, this.plugin).open();
