@@ -1,7 +1,7 @@
 import { Buffer } from "buffer";
 // import * as path from "path";
 // import { Readable } from "stream";
-import type { PutObjectCommandInput, _Object } from "@aws-sdk/client-s3";
+import type { PutObjectCommandInput } from "@aws-sdk/client-s3";
 import {
   ListObjectsV2Command,
   type ListObjectsV2CommandInput,
@@ -18,12 +18,12 @@ import {
 import { requestTimeout } from "@smithy/fetch-http-handler/dist-es/request-timeout";
 import { type HttpRequest, HttpResponse } from "@smithy/protocol-http";
 import { buildQueryString } from "@smithy/querystring-builder";
-import { App, type RequestUrlParam, requestUrl, TFile } from "obsidian";
-import { type S3Config } from "./baseTypes";
-import { VALID_REQURL } from "./baseTypesObs";
+import { App, requestUrl, type RequestUrlParam, TFile } from "obsidian";
+import { type S3Config } from "../utils/baseTypes";
+import { VALID_REQURL } from "../utils/baseTypesObs";
 
-import type { Entity } from "./baseTypes";
-import { FileTypeUtil } from './getMimeType';
+import type { Entity } from "../utils/baseTypes";
+import { FileTypeUtil } from '../utils/getMimeType';
 
 const bufferToArrayBuffer = (
   b: Buffer | Uint8Array | ArrayBufferView
@@ -42,7 +42,7 @@ const bufferToArrayBuffer = (
  * But this uses Obsidian requestUrl instead.
  */
 class ObsHttpHandler extends FetchHttpHandler {
-  
+
   requestTimeoutInMs: number | undefined;
   reverseProxyNoSignUrl: string | undefined;
   constructor(
@@ -73,9 +73,8 @@ class ObsHttpHandler extends FetchHttpHandler {
     }
 
     const { port, method } = request;
-    let url = `${request.protocol}//${request.hostname}${
-      port ? `:${port}` : ""
-    }${path}`;
+    let url = `${request.protocol}//${request.hostname}${port ? `:${port}` : ""
+      }${path}`;
     if (
       this.reverseProxyNoSignUrl !== undefined &&
       this.reverseProxyNoSignUrl !== ""
@@ -199,7 +198,7 @@ const getS3Client = (s3Config: S3Config) => {
   return s3Client;
 };
 
-export class CustomS3{
+export class CustomS3 {
   s3Config: S3Config;
   s3Client: S3Client;
   kind: "s3";
@@ -243,25 +242,25 @@ export class CustomS3{
 
   }
 
-  
+
   async uploadFile(file: TFile, key: string, app: App): Promise<boolean> {
 
     const contentType = FileTypeUtil.getMimeType(file.name);
     try {
 
-          const fileContent = await app.vault.readBinary(file);
-          const p: PutObjectCommandInput = {
-            Bucket: this.s3Config.s3BucketName,
-            Key: key,
-            Body: new Uint8Array(fileContent),
-            ContentType: contentType,
-          };
-          await this.s3Client.send(new PutObjectCommand(p));
-          return true;
+      const fileContent = await app.vault.readBinary(file);
+      const p: PutObjectCommandInput = {
+        Bucket: this.s3Config.s3BucketName,
+        Key: key,
+        Body: new Uint8Array(fileContent),
+        ContentType: contentType,
+      };
+      await this.s3Client.send(new PutObjectCommand(p));
+      return true;
 
     } catch (error) {
-        console.error('Error uploading to custom S3:', error);
-        throw error;
+      console.error('Error uploading to custom S3:', error);
+      throw error;
     }
   }
 }
