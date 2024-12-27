@@ -6,6 +6,7 @@ Cloud Storage is a powerful and user-friendly plugin designed to seamlessly inte
 ## Features
 
 - **Automatic Cloud Upload**: Seamlessly upload attachments from specified folders to the cloud.
+- **Resumable Uploads**: Supports resumable uploads, ensuring efficient file transfer.(Only for plugin-provided storage)
 - **Smart Link Updating**: Automatically updates links in your notes to point to the cloud-stored files, ensuring your notes remain fully functional.
 - **Flexible Storage Options**: Choose between plugin-provided cloud storage or your own S3-compatible storage solution.
 - **Granular File Control**: 
@@ -55,7 +56,11 @@ Here are some quick video demonstrations to help you get started with Cloud Stor
 
 ### Managing Monitored Folders
 
-- **Add a Folder**: Click "Add Folder" in the General Settings section and select the desired folder.
+- **Configure Monitored Folders**:
+  (Only required when using the Upload attachments command)
+  - Under "Local" in plugin settings, click "Add Folder".
+  - Select or enter the path to the folder you want to monitor for attachments.
+  - Repeat this process for all folders you wish to include.
 - **Remove a Folder**: Click the "Remove" button next to any folder you wish to stop monitoring.
 - **Folder Suggestions**: As you type, the plugin will suggest existing folders in your vault for easy selection.
 
