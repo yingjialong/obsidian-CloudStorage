@@ -114,6 +114,9 @@ export class FilesUploadManager {
                         if (res2) {
                             await this.handleLocalFile(file);
                         }
+                        else {
+                            popNotice(true, `Failed to update file references for ${file.name} in documents.`)
+                        }
                     }
                     return;
                 }

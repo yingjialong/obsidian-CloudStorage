@@ -312,7 +312,34 @@ export default class CloudStoragePlugin extends Plugin {
 
         // Get "Monitored Folders" from plugin settings
         const monitoredFolders = this.settings.monitoredFolders; // Assume this information is stored in settings
-        if (monitoredFolders.length === 0) {
+        const allMonitoredFolders: string[] = [];
+
+        for (const folderPath of monitoredFolders) {
+            allMonitoredFolders.push(folderPath);
+            
+            if (this.settings.monitorSubfolders) {
+                const folder = this.app.vault.getAbstractFileByPath(folderPath);
+                if (folder instanceof TFolder) {
+                    const subFolders = getAllSubfolders(folder);
+                    allMonitoredFolders.push(...subFolders);
+                }
+            }
+        }
+
+        // Helper function to get all subfolders
+        function getAllSubfolders(folder: TFolder): string[] {
+            let subFolders: string[] = [];
+            for (const child of folder.children) {
+                if (child instanceof TFolder) {
+                    subFolders.push(child.path);
+                    subFolders = subFolders.concat(getAllSubfolders(child));
+                }
+            }
+            return subFolders;
+        }
+        const uniqueMonitoredFolders = [...new Set(allMonitoredFolders)];
+
+        if (uniqueMonitoredFolders.length === 0) {
             popNotice(true,'No monitored folders found. Please add monitored folders first.');
             actionDone(this, 'uploadAllAttachments_nomonitored');
             return;
@@ -341,7 +368,7 @@ export default class CloudStoragePlugin extends Plugin {
             const filesUploadManager = new FilesUploadManager(this, updateStatusTracker);
 
             // Iterate through all monitored folders
-            for (const folderPath of monitoredFolders) {
+            for (const folderPath of uniqueMonitoredFolders) {
                 const folder = this.app.vault.getAbstractFileByPath(folderPath);
                 console.info(`Scanning folder: ${folderPath}`);
                 if (folder instanceof TFolder) {

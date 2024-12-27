@@ -37,25 +37,21 @@ Here are some quick video demonstrations to help you get started with Cloud Stor
 ## Quick Start Guide
 
 1. **Account Setup**: 
-   - Open the Cloud Storage settings.
-   - Click on "Sign up" to create a new account or "Log in" if you already have one.
-   - Check your email and verify your account to receive additional free storage space.
+   - Open Cloud Storage settings.
+   - Click the "Click Me" button under "Initialization".
+   - Select "I am a new user".
+   - Update your email address and verify it to receive additional free storage space.
 
-2. **Configure Monitored Folders**:
-   - In the plugin settings, under "Local", click "Add Folder".
-   - Select or type the path of the folder you want to monitor for attachments.
-   - Repeat this process for all folders you wish to include.
-
-3. **Initiate Your First Upload**:
-   - Open the command palette (Ctrl/Cmd + P).
-   - Search for and select "Cloud Storage: Upload attachments".
-   - The plugin will start uploading files from your monitored folders and updating links in your notes.
-
-4. **Verify Uploads**:
-   - Check the status bar at the bottom of the Obsidian window for upload progress.
-   - Once complete, you can click on "Manage Storage" in the plugin settings to view your uploaded files.
+2. **Configure Auto-Upload**:
+   - Keep the "Auto Upload Attachment" option enabled.
+   - Use Obsidian as you normally would - the plugin will automatically manage and upload attachments as they're added.
 
 ## Detailed Usage Guide
+
+### Uploading Attachments Using Commands
+
+- Open the command palette (Ctrl/Cmd + P).
+- Search for and select either "Cloud Storage: Upload attachments from the monitored folder" or "Upload attachments in current file".
 
 ### Managing Monitored Folders
 

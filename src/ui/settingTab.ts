@@ -306,8 +306,18 @@ export class CloudStorageSettingTab extends PluginSettingTab {
         });
 
         new Setting(generalSection)
+            .setName('Monitor Subfolders')
+            .setDesc('When enabled, attachments in all subfolders of the selected folders will be monitored. If disabled, only attachments in the selected folders will be monitored.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.monitorSubfolders || false)
+                .onChange(async (value) => {
+                    this.plugin.settings.monitorSubfolders = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(generalSection)
             .setName('Auto Upload Attachment')
-            .setDesc('If turned off, you can manually upload attachments with one click through the command panel by "Cloud Storage: Upload attachments from the monitored folder" or "Cloud Storage： Upload attachments in current file".')
+            .setDesc('If turned off, you can manually upload attachments with one click through the command panel by "Cloud Storage: Upload attachments from the monitored folder" or "Cloud Storage: Upload attachments in current file".')
             .addToggle(toggle => toggle
                 .setValue(this.plugin.settings.autoUpload)
                 .onChange(async (value) => {

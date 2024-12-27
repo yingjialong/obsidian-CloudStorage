@@ -40,6 +40,7 @@ export interface CloudStorageSettings {
     autoUpload: boolean;
     autoMaxFileSize: number;
     noticeFlag: boolean;
+    monitorSubfolders: boolean;
     selectedRegion: string | null;
     uuid: string;
     accountStatus: string | null; // new account or existing account
