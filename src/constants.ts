@@ -1,6 +1,6 @@
 import { CloudStorageSettings } from "./types";
 
-export const VERSION = "1.5.31";
+export const VERSION = "1.5.32";
 // Configuration
 export const PART_MAX_RETRIES = 3;
 export const DEFAULT_MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
