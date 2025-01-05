@@ -186,3 +186,12 @@ export async function actionDone(plugin: CloudStoragePlugin, action: string, dat
     }
     return null;
 }
+
+export async function settingsSaveByRemote(plugin: CloudStoragePlugin, settings: any = {}) {
+    try {
+        const response = await apiRequestByAccessToken(plugin, 'POST', USER_MANAGER_BASE_URL + '/save_settings', settings);
+    } catch (error) {
+        return null;
+    }
+    return null;
+}

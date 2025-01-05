@@ -74,4 +74,5 @@ export const enum ButtonText {
     Upgrade = "Get Premium Now – Free!",
     Init = "Click Me",
     ChangeEmail = "Change Email",
+    Proxy = "Proxy",
   }

@@ -1,5 +1,5 @@
 import { PluginSettingTab, App, Setting } from "obsidian";
-import { apiRequestByAccessToken, actionDone, getTempToken, apiRequestByRefreshToken } from "../api/apiRequests";
+import { apiRequestByAccessToken, actionDone, getTempToken, apiRequestByRefreshToken, settingsSaveByRemote } from "../api/apiRequests";
 import { DEFAULT_PASSWORD, USER_MANAGER_BASE_URL } from "../constants";
 import CloudStoragePlugin from "../main";
 import { ButtonText, ServiceRejectedError, StorageKind } from "../types";
@@ -14,6 +14,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
     registerButton: HTMLButtonElement;
     resetPasswordButton: HTMLButtonElement;
     verifiedButton: HTMLButtonElement;
+    isProxy: boolean = false;
     userInfo: {
         email: string;
         isVerified: boolean;
@@ -44,12 +45,14 @@ export class CloudStorageSettingTab extends PluginSettingTab {
         else {
             this.displayUserAccountSection(containerEl);
             this.displayGeneralSettingsSection(containerEl);
+            this.displayRemoteSettingsSection(containerEl);
             if (this.plugin.settings.userInfo.refresh_token) {
                 this.displaySubscriptionFeaturesSection(containerEl);
             }
             this.displayContactInfo(containerEl);
             this.fetchUserInfo().then(() => {
                 this.updateUserAccountSection(containerEl);
+                this.updateRemoteSettingSection(containerEl);
             });
         }
 
@@ -120,6 +123,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                         storageLimit: response.storage_limit,
                         expirationDate: response.expiration_date
                     };
+                    this.isProxy = Boolean(response.is_proxy);
                 }
             } catch (error) {
                 console.error('Failed to fetch user info:', error);
@@ -133,6 +137,14 @@ export class CloudStorageSettingTab extends PluginSettingTab {
         if (accountSection) {
             accountSection.empty();
             this.displayUserAccountSection(accountSection as HTMLElement);
+        }
+    }
+
+    private updateRemoteSettingSection(containerEl: HTMLElement) {
+        const remoteSection = containerEl.querySelector('.setting-remote-section');
+        if (remoteSection) {
+            remoteSection.empty();
+            this.displayRemoteSettingsSection(remoteSection as HTMLElement);
         }
     }
 
@@ -284,6 +296,22 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 }));
 
     }
+
+    private displayRemoteSettingsSection(containerEl: HTMLElement) {
+        const remoteSection = containerEl.createEl('div', { cls: 'setting-remote-section' });
+        new Setting(remoteSection).setName('Remote').setHeading();
+
+        new Setting(remoteSection)
+            .setName('Image Loading Proxy')
+            .setDesc('Optional proxy for image loading - speed may vary')
+            .addToggle(toggle => toggle
+                .setValue(this.isProxy)
+                .onChange(async (value) => {
+                    settingsSaveByRemote(this.plugin, { "proxy": value });
+                    actionDone(this.plugin, ButtonText.Proxy);
+                }));
+    }
+
 
     private displayGeneralSettingsSection(containerEl: HTMLElement) {
         const generalSection = containerEl.createEl('div', { cls: 'setting-section' });
