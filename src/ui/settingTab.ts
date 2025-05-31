@@ -534,7 +534,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
     private async resendVerificationEmail(): Promise<void> {
         if (this.plugin.settings.userInfo.email.endsWith('@obcs.top')) {
-            popNotice(true, 'Please update to your personal email address before authenticating.');
+            popNotice(true, 'Please update your email to a personal address before verification.');
             return;
         }
         try {
@@ -634,7 +634,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                     .onClick(() => {
                         // Implement bulk file retrieval logic here
                         actionDone(this.plugin, ButtonText.RetrieveFiles);
-                        popNotice(true, 'Bulk file retrieval feature is not yet implemented.');
+                        popNotice(true, 'Bulk file retrieval feature is not yet available.');
                     }));
         }
 
@@ -646,7 +646,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                 .onClick(() => {
                     actionDone(this.plugin, ButtonText.ChangePassword);
                     if (!this.userInfo.isVerified) {
-                        popNotice(true, 'Please verify your email before changing your password to ensure you can recover it later if needed.');
+                        popNotice(true, 'Please verify your email before changing your password to ensure account recovery if needed.');
                         return;
                     }
                     new ChangePasswordModal(this.app, this.plugin).open();
@@ -759,7 +759,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
                             await this.registerUser(this.plugin.settings.userInfo.email, this.tempPassword, result);
                         }
                     } catch (error) {
-                        popNotice(true, 'Create account failed');
+                        popNotice(true, 'Account creation failed');
                     } finally {
                         this.registerButton.disabled = false;
                     }
@@ -790,7 +790,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             const response = await apiRequestByAccessToken(this.plugin, 'POST', USER_MANAGER_BASE_URL + '/send_reset_mail', { "email": email });
 
             if (response) {
-                popNotice(true, 'Password reset email has been sent. Please check your inbox.');
+                popNotice(true, 'Password reset email sent. Please check your inbox.');
             }
         } catch (error) {
             console.error('Password reset failed:', error);
@@ -851,7 +851,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
 
     private async registerUser(email: string, password: string, region: string, isAutoRegister: boolean = false) {
         if (!isAutoRegister && (!validateEmail(email) || !validatePassword(password))) {
-            popNotice(true, 'Email or password is not compliant.');
+            popNotice(true, 'Email or password does not meet requirements.');
             return;
         }
 
@@ -938,7 +938,7 @@ export class CloudStorageSettingTab extends PluginSettingTab {
             );
 
             if (response) {
-                popNotice(true, 'Email changed successfully. Please log in with your new email.');
+                popNotice(true, 'Email changed successfully. Please log in with your new email address.');
                 this.plugin.settings.userInfo.email = response.email;
                 await this.plugin.saveSettings();
                 return true;

@@ -43,7 +43,7 @@ export async function apiRequestByAccessToken(plugin: CloudStoragePlugin, method
                     return response3.json;
                 } else if (response3.status === 200 && response3.json.error_code === 6001) {
                     // Invalid access token, please relogin
-                    popNotice(true, 'Error: Invalid access token, please relogin.');
+                    popNotice(true, 'Error: Invalid access token. Please log in again.');
                     return null;
                 } else if (response3.status === 200 && response3.json.error_code === 7003) {
                     popNotice(true, response3.json.error_message);
@@ -58,7 +58,7 @@ export async function apiRequestByAccessToken(plugin: CloudStoragePlugin, method
                 }
             }
             else {
-                popNotice(true, 'Error: Invalid access token, please relogin.');
+                popNotice(true, 'Error: Invalid access token. Please log in again.');
                 return null;
             }
 
@@ -99,7 +99,7 @@ export async function apiRequestByRefreshToken(plugin: CloudStoragePlugin, metho
             return response.json.detail;
         } else if (response.status === 200 && response.json.detail.error_code === 6001) {
             // Invalid access token, please relogin
-            popNotice(true, 'Error: Invalid access token, please relogin.');
+            popNotice(true, 'Error: Invalid access token. Please log in again.');
             return null;
         } else if (response.status === 200 && response.json.detail.error_code === 7003) {
             popNotice(true, response.json.detail.error_message);
@@ -130,7 +130,7 @@ export async function refreshAccessToken(plugin: CloudStoragePlugin) {
         }
     } catch (error) {
         console.error('getAccessToken', error);
-        popNotice(true, 'Get access token failed');
+        popNotice(true, 'Failed to get access token');
         return null;
 
     }

@@ -1,7 +1,7 @@
 {
 	"id": "cloud-storage",
 	"name": "Cloud Storage",
-	"version": "1.5.32",
+	"version": "1.5.33",
 	"minAppVersion": "1.0.0",
 	"description": "Managing attachments across devices. Automatically uploads your attachments to the cloud and smartly updates all your markdown links, keeping your notes and attachments perfectly organized. Whether you're handling images, PDFs, or any other files, it works seamlessly in the background. You can even use it as a powerful image hosting solution, supporting plugin-provided cloud storage or custom S3 storage!",
 	"author": "majiajun",

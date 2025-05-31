@@ -141,7 +141,7 @@ export class FilesUploadManager {
                     throw error;
                 } else {
                     console.warn(`Attempt ${attempt} to upload ${file.name} failed. Retrying in ${retryDelay * attempt / 1000}s...`, 10);
-                    popNotice(this.settings.noticeFlag, `${file.name} retring...`)
+                    popNotice(this.settings.noticeFlag, `${file.name} retrying...`)
                     await new Promise(res => setTimeout(res, retryDelay * attempt));
                 }
             }

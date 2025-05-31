@@ -189,7 +189,7 @@ export default class CloudStoragePlugin extends Plugin {
                     if (!this.shouldProcessFile(linkedFile)) {
                         if  (this.autoUploadRemind) 
                         {
-                            popNotice(true,`Skipping file ${linkedFile.path},Please check your file size or other settings.`);
+                            popNotice(true,`File ${linkedFile.path} skipped. Please check your file size or other settings.`);
                             this.autoUploadRemind = false;
                         }
                         
@@ -199,7 +199,7 @@ export default class CloudStoragePlugin extends Plugin {
                     if (linkedFile.stat.size > this.settings.autoMaxFileSize * 1024 * 1024) {
                         if  (this.autoUploadRemind) 
                         {
-                            popNotice(true,`Skipping file ${linkedFile.path},Please check your file size or other settings.`);
+                            popNotice(true,`File ${linkedFile.path} skipped. Please check your file size or other settings.`);
                             this.autoUploadRemind = false;
                         }
                         return false;
@@ -240,7 +240,7 @@ export default class CloudStoragePlugin extends Plugin {
         }
         
         if (this.proccessing) {
-            popNotice(true,'Please wait until the current upload is complete.');
+            popNotice(true,'Please wait for the current upload to complete.');
             return;
         }
         if (this.fileUploadLocker.acquire())
@@ -249,7 +249,7 @@ export default class CloudStoragePlugin extends Plugin {
         }
         else
         {
-            popNotice(true,'Please wait until the current upload is complete.');
+            popNotice(true,'Please wait for the current upload to complete.');
             return;
         }
         
@@ -281,7 +281,7 @@ export default class CloudStoragePlugin extends Plugin {
                             uploadFiles.push(linkedFile);
                         } else {
                             await updateStatusTracker.updateSkippedFileCount();
-                            popNotice(this.settings.noticeFlag,`Skipping file ${linkedFile.path},Please check your file size or other settings.`)
+                            popNotice(this.settings.noticeFlag,`File ${linkedFile.path} skipped. Please check your file size or other settings.`)
                         }
                     }
                 }
@@ -289,7 +289,7 @@ export default class CloudStoragePlugin extends Plugin {
 
             // Wait for all uploads to complete
             await filesUploadManager.uploadFiles(uploadFiles, currentPage);
-            popNotice(true,`Upload complete: ${updateStatusTracker.uploadedSuccessFileCount} successful, ${updateStatusTracker.uploadedErrorFileCount} failed, ${updateStatusTracker.skipUploadCount} skipped`)
+            popNotice(true,`Upload completed: ${updateStatusTracker.uploadedSuccessFileCount} successful, ${updateStatusTracker.uploadedErrorFileCount} failed, ${updateStatusTracker.skipUploadCount} skipped`)
         } catch (error) {
             console.error("Error uploading attachments:", error);
         } finally {
@@ -306,7 +306,7 @@ export default class CloudStoragePlugin extends Plugin {
         }
 
         if (this.proccessing) {
-            popNotice(true,'Please wait until the current upload is complete.');
+            popNotice(true,'Please wait for the current upload to complete.');
             return;
         }
 
@@ -351,7 +351,7 @@ export default class CloudStoragePlugin extends Plugin {
         }
         else
         {
-            popNotice(true,'Please wait until the current upload is complete.');
+            popNotice(true,'Please wait for the current upload to complete.');
             return;
         }
         
@@ -375,7 +375,7 @@ export default class CloudStoragePlugin extends Plugin {
                     await this.scanFolder(folder, filesUploadManager, updateStatusTracker);
                 }
             }
-            popNotice(true,`Upload complete: ${updateStatusTracker.uploadedSuccessFileCount} successful, ${updateStatusTracker.uploadedErrorFileCount} failed, ${updateStatusTracker.skipUploadCount} skipped`)
+            popNotice(true,`Upload completed: ${updateStatusTracker.uploadedSuccessFileCount} successful, ${updateStatusTracker.uploadedErrorFileCount} failed, ${updateStatusTracker.skipUploadCount} skipped`)
         }
         finally {
             // this.initStatusBarItemEl(this.statusBarItemEl);
@@ -395,7 +395,7 @@ export default class CloudStoragePlugin extends Plugin {
                 }
                 else {
                     await updateStatusTracker.updateSkippedFileCount()
-                    popNotice(this.settings.noticeFlag,`Skipping file ${file.path},Please check your file size or other settings.`)
+                    popNotice(this.settings.noticeFlag,`File ${file.path} skipped. Please check your file size or other settings.`)
                 }
             }
         }
